@@ -3,77 +3,65 @@
 > This is still an early stage of development, we may change API frequently.
 > But the features is ok to use, you must keep tracking our changes.
 
-A UI components for building desktop application by using [GPUI](https://gpui.rs).
+UI components for building fantastic desktop application by using [GPUI](https://gpui.rs).
 
 ## Features
 
-- [x] Theming
-- [x] TitleBar
-- [ ] TextInput
-  - [x] Ctrl+a, e to move cursor to start/end
-  - [x] Copy, Cut, Paste by keyboard
-  - [x] Selection by mouse, drag to select text
-  - [x] Cursor blinking
-  - [x] Input icon
-  - [ ] Textarea
-  - [ ] ContextMenu to let user copy, cut, paste
-- [x] OtpInput
-- [x] Button
-  - [x] Button with Icon
-  - [x] ButtonGroup
-  - [x] IconButton
-  - [x] Glost / Outline Button
-  - [x] Loading
-- [x] Link
-- [x] Label
-- [x] Icon
-- [x] Checkbox
-- [x] Radio
-- [x] Switch
-- [x] Dropdown
-- [x] Tabs
-- [x] Notification
-- [x] Tooltip
-- [x] Popover
-- [x] Dockpanel
-- [x] Resizable
-- [x] Progress & Indicator
-- [x] Slider
-- [x] Skeleton
-- [ ] DatePicker
-  - [x] DatePicker
-  - [x] DateRangePicker
-  - [x] Calendar
-  - [ ] TimePicker
-- [x] ColorPicker
-- [x] List
-  - [x] A complex List example.
-- [x] Table
-  - [x] row, column selection
-  - [x] Left, Right / Up, Down to selection column or row.
-  - [x] Horizontal scroll
-  - [x] Vertical scroll
-  - [x] Column resizing
-  - [x] Column ordering
-  - [x] Column sorting
-- [x] Menu
-  - [x] Popup Menu
-  - [x] Context Menu
-- [x] Drawer
-- [x] Modal
-- [x] Notification
-- [x] WebView
-- [x] Accordion
+- Theming
+- TitleBar
+- Dock, Tiles
+- TextInput, TextArea, OtpInput
+- Button, Link
+- Label
+- Icon
+- Checkbox, Radio, Switch
+- Dropdown
+- Tabs
+- Notification
+- Tooltip
+- Popover
+- Resizable
+- Progress & Indicator
+- Slider
+- Skeleton
+- DatePicker, DateRangePicker, Calendar
+- ColorPicker
+- List
+- Table
+- Menu
+- Drawer
+- Modal
+- WebView
+- Accordion
+- Sidebar
+- Breadcrumb
+- Badge
 
 ## Showcase
 
-Here is an application that is built by using GPUI Component.
+Here is the first application: [Longbridge](https://longbridge.com) that is built by using GPUI Component.
 
-> This application is still under development, not published yet.
+> It still under development, not published yet.
 
-![image](https://github.com/user-attachments/assets/559a648d-19df-4b5a-b563-b78cc79c8894)
+<img width="2017" alt="SCR-20250107-kagq" src="https://github.com/user-attachments/assets/55f9e012-34ce-44d1-908f-768f8d2c8abf" />
+<img width="2017" alt="SCR-20250107-kaky" src="https://github.com/user-attachments/assets/a56995ca-1c54-43bb-9a27-bc9023a169dd" />
+<img width="2017" alt="SCR-20250107-kapd" src="https://github.com/user-attachments/assets/ecdfe8cd-f8d8-4df4-bafe-ab2d8517f8db" />
+<img width="2017" alt="SCR-20250107-kfvk" src="https://github.com/user-attachments/assets/ccc4f25f-16c2-4140-a2ad-d194aadaa544" />
 
-![image](https://github.com/user-attachments/assets/5e06ad5d-7ea0-43db-8d13-86a240da4c8d)
+We build multi-themes support in application, this feature is not including in GPUI Component. It is based on `Theme` feature, so it easy to do.
+
+## Usage
+
+GPUI and GPUI Component still in development, so we need add dependency by git.
+
+And GPUI Component depends on `gpui` by special version (It keep updated to upstream) for including WebView support.
+
+```toml
+gpui = { git = "https://github.com/huacnlee/zed.git", branch = "export-platform-window" }
+ui = { git = "https://github.com/longbridge/gpui-component.git" }
+```
+
+More usage can be found in [story](https://github.com/longbridge/gpui-component/tree/main/crates/story) directory.
 
 ## Demo
 
@@ -81,11 +69,15 @@ If you want to see the demo, here is a some demo applications.
 
 - [gpui-app-windows.zip](https://github.com/user-attachments/files/17396296/gpui-app-windows.zip) - Updated at 2024/10/16
 
-## How to build
+## Development
 
 ```bash
 cargo run
 ```
+
+More examples can be found in `examples` directory.
+
+Checkout [DEVELOPMENT](DEVELOPMENT) to see more details.
 
 ## License
 

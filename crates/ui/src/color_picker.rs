@@ -1,9 +1,8 @@
 use gpui::{
-    anchored, canvas, deferred, div, prelude::FluentBuilder as _, px, relative, AnchorCorner,
-    AppContext, Bounds, ElementId, EventEmitter, FocusHandle, FocusableView, Hsla,
+    anchored, canvas, deferred, div, prelude::FluentBuilder as _, px, relative, App, AppContext,
+    Bounds, Context, Corner, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Point,
-    Render, SharedString, StatefulInteractiveElement as _, Styled, View, ViewContext,
-    VisualContext,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 
 use crate::{
@@ -11,14 +10,13 @@ use crate::{
     h_flex,
     input::{InputEvent, TextInput},
     popover::Escape,
-    theme::{ActiveTheme as _, Colorize},
     tooltip::Tooltip,
-    v_flex, ColorExt as _, Sizable, Size, StyleSized,
+    v_flex, ActiveTheme as _, Colorize as _, Sizable, Size, StyleSized,
 };
 
 const KEY_CONTEXT: &'static str = "ColorPicker";
 
-pub fn init(cx: &mut AppContext) {
+pub fn init(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("escape", Escape, Some(KEY_CONTEXT))])
 }
 
@@ -63,33 +61,37 @@ pub struct ColorPicker {
     hovered_color: Option<Hsla>,
     label: Option<SharedString>,
     size: Size,
-    anchor: AnchorCorner,
-    color_input: View<TextInput>,
+    anchor: Corner,
+    color_input: Entity<TextInput>,
 
     open: bool,
     bounds: Bounds<Pixels>,
 }
 
 impl ColorPicker {
-    pub fn new(id: impl Into<ElementId>, cx: &mut ViewContext<Self>) -> Self {
-        let color_input = cx.new_view(|cx| TextInput::new(cx).xsmall());
+    pub fn new(id: impl Into<ElementId>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let color_input = cx.new(|cx| TextInput::new(window, cx).xsmall());
 
-        cx.subscribe(&color_input, |this, _, ev: &InputEvent, cx| match ev {
-            InputEvent::Change(value) => {
-                if let Ok(color) = Hsla::parse_hex_string(value) {
-                    this.value = Some(color);
-                    this.hovered_color = Some(color);
+        cx.subscribe_in(
+            &color_input,
+            window,
+            |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::Change(value) => {
+                    if let Ok(color) = Hsla::parse_hex(value) {
+                        this.value = Some(color);
+                        this.hovered_color = Some(color);
+                    }
                 }
-            }
-            InputEvent::PressEnter => {
-                let val = this.color_input.read(cx).text();
-                if let Ok(color) = Hsla::parse_hex_string(&val) {
-                    this.open = false;
-                    this.update_value(Some(color), true, cx);
+                InputEvent::PressEnter => {
+                    let val = this.color_input.read(cx).text();
+                    if let Ok(color) = Hsla::parse_hex(&val) {
+                        this.open = false;
+                        this.update_value(Some(color), true, window, cx);
+                    }
                 }
-            }
-            _ => {}
-        })
+                _ => {}
+            },
+        )
         .detach();
 
         Self {
@@ -112,7 +114,7 @@ impl ColorPicker {
             hovered_color: None,
             size: Size::Medium,
             label: None,
-            anchor: AnchorCorner::TopLeft,
+            anchor: Corner::TopLeft,
             color_input,
             open: false,
             bounds: Bounds::default(),
@@ -129,8 +131,8 @@ impl ColorPicker {
     }
 
     /// Set current color value.
-    pub fn set_value(&mut self, value: Hsla, cx: &mut ViewContext<Self>) {
-        self.update_value(Some(value), false, cx)
+    pub fn set_value(&mut self, value: Hsla, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_value(Some(value), false, window, cx)
     }
 
     /// Set the size of the color picker, default is `Size::Medium`.
@@ -149,32 +151,38 @@ impl ColorPicker {
 
     /// Set the anchor corner of the color picker.
     ///
-    /// Default is `AnchorCorner::TopLeft`.
-    pub fn anchor(mut self, anchor: AnchorCorner) -> Self {
+    /// Default is `Corner::TopLeft`.
+    pub fn anchor(mut self, anchor: Corner) -> Self {
         self.anchor = anchor;
         self
     }
 
-    fn on_escape(&mut self, _: &Escape, cx: &mut ViewContext<Self>) {
+    fn on_escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
         cx.propagate();
 
         self.open = false;
         cx.notify();
     }
 
-    fn toggle_picker(&mut self, _: &gpui::ClickEvent, cx: &mut ViewContext<Self>) {
+    fn toggle_picker(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.open = !self.open;
         cx.notify();
     }
 
-    fn update_value(&mut self, value: Option<Hsla>, emit: bool, cx: &mut ViewContext<Self>) {
+    fn update_value(
+        &mut self,
+        value: Option<Hsla>,
+        emit: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.value = value;
         self.hovered_color = value;
         self.color_input.update(cx, |view, cx| {
             if let Some(value) = value {
-                view.set_text(value.to_hex_string(), cx);
+                view.set_text(value.to_hex(), window, cx);
             } else {
-                view.set_text("", cx);
+                view.set_text("", window, cx);
             }
         });
         if emit {
@@ -187,13 +195,11 @@ impl ColorPicker {
         &self,
         color: Hsla,
         clickable: bool,
-        cx: &mut ViewContext<Self>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
     ) -> impl IntoElement {
         div()
-            .id(SharedString::from(format!(
-                "color-{}",
-                color.to_hex_string()
-            )))
+            .id(SharedString::from(format!("color-{}", color.to_hex())))
             .h_5()
             .w_5()
             .bg(color)
@@ -207,26 +213,26 @@ impl ColorPicker {
                             .shadow_sm()
                     })
                     .active(|this| this.border_color(color.darken(0.5)).bg(color.darken(0.2)))
-                    .on_mouse_move(cx.listener(move |view, _, cx| {
+                    .on_mouse_move(cx.listener(move |view, _, _, cx| {
                         view.hovered_color = Some(color);
                         cx.notify();
                     }))
-                    .on_click(cx.listener(move |view, _, cx| {
-                        view.update_value(Some(color), true, cx);
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.update_value(Some(color), true, window, cx);
                         view.open = false;
                         cx.notify();
                     }))
             })
     }
 
-    fn render_colors(&self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render_colors(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_3()
             .child(
                 h_flex().gap_1().children(
                     self.featured_colors
                         .iter()
-                        .map(|color| self.render_item(*color, true, cx)),
+                        .map(|color| self.render_item(*color, true, window, cx)),
                 ),
             )
             .child(Divider::horizontal())
@@ -238,7 +244,7 @@ impl ColorPicker {
                             sub_colors
                                 .iter()
                                 .rev()
-                                .map(|color| self.render_item(*color, true, cx)),
+                                .map(|color| self.render_item(*color, true, window, cx)),
                         )
                     })),
             )
@@ -262,13 +268,12 @@ impl ColorPicker {
     }
 
     fn resolved_corner(&self, bounds: Bounds<Pixels>) -> Point<Pixels> {
-        match self.anchor {
-            AnchorCorner::TopLeft => AnchorCorner::BottomLeft,
-            AnchorCorner::TopRight => AnchorCorner::BottomRight,
-            AnchorCorner::BottomLeft => AnchorCorner::TopLeft,
-            AnchorCorner::BottomRight => AnchorCorner::TopRight,
-        }
-        .corner(bounds)
+        bounds.corner(match self.anchor {
+            Corner::TopLeft => Corner::BottomLeft,
+            Corner::TopRight => Corner::BottomRight,
+            Corner::BottomLeft => Corner::TopLeft,
+            Corner::BottomRight => Corner::TopRight,
+        })
     }
 }
 
@@ -279,22 +284,22 @@ impl Sizable for ColorPicker {
     }
 }
 impl EventEmitter<ColorPickerEvent> for ColorPicker {}
-impl FocusableView for ColorPicker {
-    fn focus_handle(&self, _: &AppContext) -> FocusHandle {
+impl Focusable for ColorPicker {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ColorPicker {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let display_title: SharedString = if let Some(value) = self.value {
-            value.to_hex_string()
+            value.to_hex()
         } else {
             "".to_string()
         }
         .into();
 
-        let view = cx.view().clone();
+        let view = cx.model().clone();
 
         div()
             .id(self.id.clone())
@@ -323,14 +328,16 @@ impl Render for ColorPicker {
                             .when_some(self.value, |this, value| {
                                 this.bg(value).border_color(value.darken(0.3))
                             })
-                            .tooltip(move |cx| Tooltip::new(display_title.clone(), cx)),
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(display_title.clone(), window, cx)
+                            }),
                     )
                     .when_some(self.label.clone(), |this, label| this.child(label))
                     .on_click(cx.listener(Self::toggle_picker))
                     .child(
                         canvas(
-                            move |bounds, cx| view.update(cx, |r, _| r.bounds = bounds),
-                            |_, _, _| {},
+                            move |bounds, _, cx| view.update(cx, |r, _| r.bounds = bounds),
+                            |_, _, _, _| {},
                         )
                         .absolute()
                         .size_full(),
@@ -347,12 +354,8 @@ impl Render for ColorPicker {
                                 div()
                                     .occlude()
                                     .map(|this| match self.anchor {
-                                        AnchorCorner::TopLeft | AnchorCorner::TopRight => {
-                                            this.mt_1p5()
-                                        }
-                                        AnchorCorner::BottomLeft | AnchorCorner::BottomRight => {
-                                            this.mb_1p5()
-                                        }
+                                        Corner::TopLeft | Corner::TopRight => this.mt_1p5(),
+                                        Corner::BottomLeft | Corner::BottomRight => this.mb_1p5(),
                                     })
                                     .w_72()
                                     .overflow_hidden()
@@ -365,9 +368,11 @@ impl Render for ColorPicker {
                                     .bg(cx.theme().background)
                                     .on_mouse_up_out(
                                         MouseButton::Left,
-                                        cx.listener(|view, _, cx| view.on_escape(&Escape, cx)),
+                                        cx.listener(|view, _, window, cx| {
+                                            view.on_escape(&Escape, window, cx)
+                                        }),
                                     )
-                                    .child(self.render_colors(cx)),
+                                    .child(self.render_colors(window, cx)),
                             ),
                     )
                     .with_priority(1),

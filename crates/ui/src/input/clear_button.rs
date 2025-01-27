@@ -1,15 +1,14 @@
-use gpui::{Styled, WindowContext};
+use gpui::{App, Styled, Window};
 
 use crate::{
-    button::{Button, ButtonStyled as _},
-    theme::ActiveTheme as _,
-    Icon, IconName, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 
 pub(crate) struct ClearButton {}
 
 impl ClearButton {
-    pub fn new(cx: &mut WindowContext) -> Button {
+    pub fn new(_: &mut Window, cx: &mut App) -> Button {
         Button::new("clean")
             .icon(Icon::new(IconName::CircleX).text_color(cx.theme().muted_foreground))
             .ghost()

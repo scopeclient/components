@@ -1,19 +1,19 @@
 use gpui::{
-    px, ClickEvent, FocusableView, IntoElement, ParentElement as _, Render, Styled as _, View,
-    ViewContext, VisualContext as _, WindowContext,
+    actions, px, App, AppContext as _, ClickEvent, Context, Entity, Focusable, InteractiveElement,
+    IntoElement, ParentElement as _, Render, Styled as _, Window,
 };
 
 use ui::{
-    button::{Button, ButtonCustomStyle, ButtonStyled as _},
-    button_group::ButtonGroup,
+    button::{Button, ButtonCustomVariant, ButtonGroup, ButtonVariants as _, DropdownButton},
     checkbox::Checkbox,
     h_flex,
     prelude::FluentBuilder,
-    theme::{ActiveTheme, Theme},
-    v_flex, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, Theme,
 };
 
 use crate::section;
+
+actions!(button_story, [Disabled, Loading, Selected, Compact]);
 
 pub struct ButtonStory {
     focus_handle: gpui::FocusHandle,
@@ -25,8 +25,8 @@ pub struct ButtonStory {
 }
 
 impl ButtonStory {
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(|cx| Self {
+    pub fn view(_: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self {
             focus_handle: cx.focus_handle(),
             disabled: false,
             loading: false,
@@ -36,7 +36,7 @@ impl ButtonStory {
         })
     }
 
-    fn on_click(ev: &ClickEvent, _: &mut WindowContext) {
+    fn on_click(ev: &ClickEvent, _window: &mut Window, _cx: &mut App) {
         println!("Button clicked! {:?}", ev);
     }
 }
@@ -50,23 +50,23 @@ impl super::Story for ButtonStory {
         "Displays a button or a component that looks like a button."
     }
 
-    fn closeable() -> bool {
+    fn closable() -> bool {
         false
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
     }
 }
 
-impl FocusableView for ButtonStory {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for ButtonStory {
+    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ButtonStory {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let disabled = self.disabled;
         let loading = self.loading;
         let selected = self.selected;
@@ -74,6 +74,10 @@ impl Render for ButtonStory {
         let toggle_multiple = self.toggle_multiple;
 
         v_flex()
+            .on_action(cx.listener(|this, _: &Disabled, _, _| this.disabled = !this.disabled))
+            .on_action(cx.listener(|this, _: &Loading, _, _| this.loading = !this.loading))
+            .on_action(cx.listener(|this, _: &Selected, _, _| this.selected = !this.selected))
+            .on_action(cx.listener(|this, _: &Compact, _, _| this.compact = !this.compact))
             .gap_6()
             .child(
                 h_flex()
@@ -83,7 +87,7 @@ impl Render for ButtonStory {
                         Checkbox::new("disabled-button")
                             .label("Disabled")
                             .checked(self.disabled)
-                            .on_click(cx.listener(|view, _, cx| {
+                            .on_click(cx.listener(|view, _, _, cx| {
                                 view.disabled = !view.disabled;
                                 cx.notify();
                             })),
@@ -92,7 +96,7 @@ impl Render for ButtonStory {
                         Checkbox::new("loading-button")
                             .label("Loading")
                             .checked(self.loading)
-                            .on_click(cx.listener(|view, _, cx| {
+                            .on_click(cx.listener(|view, _, _, cx| {
                                 view.loading = !view.loading;
                                 cx.notify();
                             })),
@@ -101,7 +105,7 @@ impl Render for ButtonStory {
                         Checkbox::new("selected-button")
                             .label("Selected")
                             .checked(self.selected)
-                            .on_click(cx.listener(|view, _, cx| {
+                            .on_click(cx.listener(|view, _, _, cx| {
                                 view.selected = !view.selected;
                                 cx.notify();
                             })),
@@ -110,7 +114,7 @@ impl Render for ButtonStory {
                         Checkbox::new("compact-button")
                             .label("Compact")
                             .checked(self.compact)
-                            .on_click(cx.listener(|view, _, cx| {
+                            .on_click(cx.listener(|view, _, _, cx| {
                                 view.compact = !view.compact;
                                 cx.notify();
                             })),
@@ -119,11 +123,11 @@ impl Render for ButtonStory {
                         Checkbox::new("shadow-button")
                             .label("Shadow")
                             .checked(cx.theme().shadow)
-                            .on_click(cx.listener(|_, _, cx| {
+                            .on_click(cx.listener(|_, _, window, cx| {
                                 let mut theme = cx.theme().clone();
                                 theme.shadow = !theme.shadow;
                                 cx.set_global::<Theme>(theme);
-                                cx.refresh();
+                                window.refresh();
                             })),
                     ),
             )
@@ -204,7 +208,7 @@ impl Render for ButtonStory {
                             .child(
                                 Button::new("button-6-custom")
                                     .custom(
-                                        ButtonCustomStyle::new(cx)
+                                        ButtonCustomVariant::new(cx)
                                             .color(if cx.theme().mode.is_dark() {
                                                 ui::green_900()
                                             } else {
@@ -506,7 +510,7 @@ impl Render for ButtonStory {
                                 Checkbox::new("multiple-button")
                                     .label("Multiple")
                                     .checked(toggle_multiple)
-                                    .on_click(cx.listener(|view, _, cx| {
+                                    .on_click(cx.listener(|view, _, _, cx| {
                                         view.toggle_multiple = !view.toggle_multiple;
                                         cx.notify();
                                     })),
@@ -536,7 +540,7 @@ impl Render for ButtonStory {
                                             .label("Compact")
                                             .selected(compact),
                                     )
-                                    .on_click(cx.listener(|view, selected: &Vec<usize>, cx| {
+                                    .on_click(cx.listener(|view, selected: &Vec<usize>, _, cx| {
                                         view.disabled = selected.contains(&0);
                                         view.loading = selected.contains(&1);
                                         view.selected = selected.contains(&2);
@@ -544,6 +548,30 @@ impl Render for ButtonStory {
                                         cx.notify();
                                     })),
                             ),
+                    ),
+            )
+            .child(
+                section("Dropdown Button", cx)
+                    .child(
+                        DropdownButton::new("dropdown-button1")
+                            .small()
+                            .button(Button::new("dropdown-button-button1").label("Click Me"))
+                            .popup_menu(move |this, _, _| {
+                                this.menu("Disabled", Box::new(Disabled))
+                                    .menu("Loading", Box::new(Loading))
+                                    .menu("Selected", Box::new(Selected))
+                                    .menu("Compact", Box::new(Compact))
+                            }),
+                    )
+                    .child(
+                        DropdownButton::new("dropdown-button")
+                            .button(Button::new("dropdown-button-button").label("Click Me"))
+                            .popup_menu(move |this, _, _| {
+                                this.menu("Disabled", Box::new(Disabled))
+                                    .menu("Loading", Box::new(Loading))
+                                    .menu("Selected", Box::new(Selected))
+                                    .menu("Compact", Box::new(Compact))
+                            }),
                     ),
             )
             .child(

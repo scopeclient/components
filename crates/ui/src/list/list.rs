@@ -5,21 +5,22 @@ use crate::Icon;
 use crate::{
     input::{InputEvent, TextInput},
     scroll::{Scrollbar, ScrollbarState},
-    theme::ActiveTheme,
-    v_flex, IconName, Size,
+    v_flex, ActiveTheme, IconName, Size,
 };
 use gpui::{
     actions, div, prelude::FluentBuilder, uniform_list, AnyElement, AppContext, Entity,
-    FocusHandle, FocusableView, InteractiveElement, IntoElement, KeyBinding, Length,
+    FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, Length,
     ListSizingBehavior, MouseButton, ParentElement, Render, SharedString, Styled, Task,
-    UniformListScrollHandle, View, ViewContext, VisualContext, WindowContext,
+    UniformListScrollHandle, Window,
 };
-use gpui::{px, ScrollStrategy};
+use gpui::{px, App, Context, EventEmitter, ScrollStrategy};
 use smol::Timer;
+
+use super::loading::Loading;
 
 actions!(list, [Cancel, Confirm, SelectPrev, SelectNext]);
 
-pub fn init(cx: &mut AppContext) {
+pub fn init(cx: &mut App) {
     let context: Option<&str> = Some("List");
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, context),
@@ -29,6 +30,16 @@ pub fn init(cx: &mut AppContext) {
     ]);
 }
 
+#[derive(Clone)]
+pub enum ListEvent {
+    /// Move to select item.
+    Select(usize),
+    /// Click on item or pressed Enter.
+    Confirm(usize),
+    /// Pressed ESC to deselect the item.
+    Cancel,
+}
+
 /// A delegate for the List.
 #[allow(unused)]
 pub trait ListDelegate: Sized + 'static {
@@ -36,20 +47,30 @@ pub trait ListDelegate: Sized + 'static {
 
     /// When Query Input change, this method will be called.
     /// You can perform search here.
-    fn perform_search(&mut self, query: &str, cx: &mut ViewContext<List<Self>>) -> Task<()> {
-        Task::Ready(Some(()))
+    fn perform_search(
+        &mut self,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<List<Self>>,
+    ) -> Task<()> {
+        Task::ready(())
     }
 
     /// Return the number of items in the list.
-    fn items_count(&self, cx: &AppContext) -> usize;
+    fn items_count(&self, cx: &App) -> usize;
 
     /// Render the item at the given index.
     ///
     /// Return None will skip the item.
-    fn render_item(&self, ix: usize, cx: &mut ViewContext<List<Self>>) -> Option<Self::Item>;
+    fn render_item(
+        &self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<List<Self>>,
+    ) -> Option<Self::Item>;
 
     /// Return a Element to show when list is empty.
-    fn render_empty(&self, cx: &mut ViewContext<List<Self>>) -> impl IntoElement {
+    fn render_empty(&self, window: &mut Window, cx: &mut Context<List<Self>>) -> impl IntoElement {
         div()
     }
 
@@ -60,57 +81,99 @@ pub trait ListDelegate: Sized + 'static {
     /// For example: The last search results, or the last selected item.
     ///
     /// Default is None, that means no initial state.
-    fn render_initial(&self, cx: &mut ViewContext<List<Self>>) -> Option<AnyElement> {
+    fn render_initial(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<List<Self>>,
+    ) -> Option<AnyElement> {
         None
     }
 
-    /// Return the confirmed index of the selected item.
-    fn confirmed_index(&self, cx: &AppContext) -> Option<usize> {
-        None
+    /// Returns the loading state to show the loading view.
+    fn loading(&self, cx: &App) -> bool {
+        false
+    }
+
+    /// Returns a Element to show when loading, default is built-in Skeleton loading view.
+    fn render_loading(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<List<Self>>,
+    ) -> impl IntoElement {
+        Loading
     }
 
     /// Set the selected index, just store the ix, don't confirm.
-    fn set_selected_index(&mut self, ix: Option<usize>, cx: &mut ViewContext<List<Self>>);
+    fn set_selected_index(
+        &mut self,
+        ix: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<List<Self>>,
+    );
 
     /// Set the confirm and give the selected index, this is means user have clicked the item or pressed Enter.
-    fn confirm(&mut self, ix: Option<usize>, cx: &mut ViewContext<List<Self>>) {}
+    fn confirm(&mut self, ix: usize, window: &mut Window, cx: &mut Context<List<Self>>) {}
 
     /// Cancel the selection, e.g.: Pressed ESC.
-    fn cancel(&mut self, cx: &mut ViewContext<List<Self>>) {}
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<List<Self>>) {}
+
+    /// Return true to enable load more data when scrolling to the bottom.
+    ///
+    /// Default: true
+    fn can_load_more(&self, cx: &App) -> bool {
+        true
+    }
+
+    /// Returns a threshold value (n rows), of course, when scrolling to the bottom,
+    /// the remaining number of rows triggers `load_more`.
+    /// This should smaller than the total number of first load rows.
+    ///
+    /// Default: 20 rows
+    fn load_more_threshold(&self) -> usize {
+        20
+    }
+
+    /// Load more data when the table is scrolled to the bottom.
+    ///
+    /// This will performed in a background task.
+    ///
+    /// This is always called when the table is near the bottom,
+    /// so you must check if there is more data to load or lock the loading state.
+    fn load_more(&mut self, window: &mut Window, cx: &mut Context<List<Self>>) {}
 }
 
 pub struct List<D: ListDelegate> {
     focus_handle: FocusHandle,
     delegate: D,
     max_height: Option<Length>,
-    query_input: Option<View<TextInput>>,
+    query_input: Option<Entity<TextInput>>,
     last_query: Option<String>,
-    loading: bool,
-
-    enable_scrollbar: bool,
+    selectable: bool,
+    querying: bool,
+    scrollbar_visible: bool,
     vertical_scroll_handle: UniformListScrollHandle,
     scrollbar_state: Rc<Cell<ScrollbarState>>,
-
     pub(crate) size: Size,
     selected_index: Option<usize>,
     right_clicked_index: Option<usize>,
     _search_task: Task<()>,
+    _load_more_task: Task<()>,
 }
 
 impl<D> List<D>
 where
     D: ListDelegate,
 {
-    pub fn new(delegate: D, cx: &mut ViewContext<Self>) -> Self {
-        let query_input = cx.new_view(|cx| {
-            TextInput::new(cx)
+    pub fn new(delegate: D, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let query_input = cx.new(|cx| {
+            TextInput::new(window, cx)
                 .appearance(false)
-                .prefix(|cx| Icon::new(IconName::Search).text_color(cx.theme().muted_foreground))
+                .prefix(|_, cx| Icon::new(IconName::Search).text_color(cx.theme().muted_foreground))
                 .placeholder("Search...")
                 .cleanable()
         });
 
-        cx.subscribe(&query_input, Self::on_query_input_event)
+        cx.subscribe_in(&query_input, window, Self::on_query_input_event)
             .detach();
 
         Self {
@@ -123,18 +186,20 @@ where
             vertical_scroll_handle: UniformListScrollHandle::new(),
             scrollbar_state: Rc::new(Cell::new(ScrollbarState::new())),
             max_height: None,
-            enable_scrollbar: true,
-            loading: false,
+            scrollbar_visible: true,
+            selectable: true,
+            querying: false,
             size: Size::default(),
-            _search_task: Task::Ready(None),
+            _search_task: Task::ready(()),
+            _load_more_task: Task::ready(()),
         }
     }
 
     /// Set the size
-    pub fn set_size(&mut self, size: Size, cx: &mut ViewContext<Self>) {
+    pub fn set_size(&mut self, size: Size, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(input) = &self.query_input {
             input.update(cx, |input, cx| {
-                input.set_size(size, cx);
+                input.set_size(size, window, cx);
             })
         }
         self.size = size;
@@ -145,8 +210,9 @@ where
         self
     }
 
-    pub fn no_scrollbar(mut self) -> Self {
-        self.enable_scrollbar = false;
+    /// Set the visibility of the scrollbar, default is true.
+    pub fn scrollbar_visible(mut self, visible: bool) -> Self {
+        self.scrollbar_visible = visible;
         self
     }
 
@@ -155,8 +221,19 @@ where
         self
     }
 
-    pub fn set_query_input(&mut self, query_input: View<TextInput>, cx: &mut ViewContext<Self>) {
-        cx.subscribe(&query_input, Self::on_query_input_event)
+    /// Sets whether the list is selectable, default is true.
+    pub fn selectable(mut self, selectable: bool) -> Self {
+        self.selectable = selectable;
+        self
+    }
+
+    pub fn set_query_input(
+        &mut self,
+        query_input: Entity<TextInput>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.subscribe_in(&query_input, window, Self::on_query_input_event)
             .detach();
         self.query_input = Some(query_input);
     }
@@ -169,13 +246,20 @@ where
         &mut self.delegate
     }
 
-    pub fn focus(&mut self, cx: &mut WindowContext) {
-        self.focus_handle(cx).focus(cx);
+    pub fn focus(&mut self, window: &mut Window, cx: &mut App) {
+        self.focus_handle(cx).focus(window);
     }
 
-    pub fn set_selected_index(&mut self, ix: Option<usize>, cx: &mut ViewContext<Self>) {
+    /// Set the selected index of the list, this will also scroll to the selected item.
+    pub fn set_selected_index(
+        &mut self,
+        ix: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.selected_index = ix;
-        self.delegate.set_selected_index(ix, cx);
+        self.delegate.set_selected_index(ix, window, cx);
+        self.scroll_to_selected_item(window, cx);
     }
 
     pub fn selected_index(&self) -> Option<usize> {
@@ -183,31 +267,43 @@ where
     }
 
     /// Set the query_input text
-    pub fn set_query(&mut self, query: &str, cx: &mut ViewContext<Self>) {
+    pub fn set_query(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(query_input) = &self.query_input {
             let query = query.to_owned();
-            query_input.update(cx, |input, cx| input.set_text(query, cx))
+            query_input.update(cx, |input, cx| input.set_text(query, window, cx))
         }
     }
 
     /// Get the query_input text
-    pub fn query(&self, cx: &mut ViewContext<Self>) -> Option<SharedString> {
+    pub fn query(&self, _: &mut Window, cx: &mut Context<Self>) -> Option<SharedString> {
         self.query_input.as_ref().map(|input| input.read(cx).text())
     }
 
-    fn render_scrollbar(&self, cx: &mut ViewContext<Self>) -> Option<impl IntoElement> {
-        if !self.enable_scrollbar {
+    fn render_scrollbar(&self, _: &mut Window, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if !self.scrollbar_visible {
             return None;
         }
 
         Some(Scrollbar::uniform_scroll(
-            cx.view().entity_id(),
+            cx.model().entity_id(),
             self.scrollbar_state.clone(),
             self.vertical_scroll_handle.clone(),
         ))
     }
 
-    fn scroll_to_selected_item(&mut self, _cx: &mut ViewContext<Self>) {
+    /// Scroll to the item at the given index.
+    pub fn scroll_to_item(&mut self, ix: usize, _: &mut Window, cx: &mut Context<Self>) {
+        self.vertical_scroll_handle
+            .scroll_to_item(ix, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    /// Get scroll handle
+    pub fn scroll_handle(&self) -> &UniformListScrollHandle {
+        &self.vertical_scroll_handle
+    }
+
+    fn scroll_to_selected_item(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
         if let Some(ix) = self.selected_index {
             self.vertical_scroll_handle
                 .scroll_to_item(ix, ScrollStrategy::Top);
@@ -216,9 +312,10 @@ where
 
     fn on_query_input_event(
         &mut self,
-        _: View<TextInput>,
+        _: &Entity<TextInput>,
         event: &InputEvent,
-        cx: &mut ViewContext<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
         match event {
             InputEvent::Change(text) => {
@@ -227,13 +324,13 @@ where
                     return;
                 }
 
-                self.set_loading(true, cx);
-                let search = self.delegate.perform_search(&text, cx);
+                self.set_querying(true, window, cx);
+                let search = self.delegate.perform_search(&text, window, cx);
 
-                self._search_task = cx.spawn(|this, mut cx| async move {
+                self._search_task = cx.spawn_in(window, |this, mut window| async move {
                     search.await;
 
-                    let _ = this.update(&mut cx, |this, _| {
+                    _ = this.update_in(&mut window, |this, _, _| {
                         this.vertical_scroll_handle
                             .scroll_to_item(0, ScrollStrategy::Top);
                         this.last_query = Some(text);
@@ -241,84 +338,139 @@ where
 
                     // Always wait 100ms to avoid flicker
                     Timer::after(Duration::from_millis(100)).await;
-                    let _ = this.update(&mut cx, |this, cx| {
-                        this.set_loading(false, cx);
+                    _ = this.update_in(&mut window, |this, window, cx| {
+                        this.set_querying(false, window, cx);
                     });
                 });
             }
-            InputEvent::PressEnter => self.on_action_confirm(&Confirm, cx),
+            InputEvent::PressEnter => self.on_action_confirm(&Confirm, window, cx),
             _ => {}
         }
     }
 
-    fn set_loading(&mut self, loading: bool, cx: &mut ViewContext<Self>) {
-        self.loading = loading;
+    fn set_querying(&mut self, querying: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.querying = querying;
         if let Some(input) = &self.query_input {
-            input.update(cx, |input, cx| input.set_loading(loading, cx))
+            input.update(cx, |input, cx| input.set_loading(querying, window, cx))
         }
         cx.notify();
     }
 
-    fn on_action_cancel(&mut self, _: &Cancel, cx: &mut ViewContext<Self>) {
-        self.set_selected_index(None, cx);
-        self.delegate.cancel(cx);
+    /// Dispatch delegate's `load_more` method when the visible range is near the end.
+    fn load_more_if_need(
+        &mut self,
+        items_count: usize,
+        visible_end: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let threshold = self.delegate.load_more_threshold();
+        // Securely handle subtract logic to prevent attempt to subtract with overflow
+        if visible_end >= items_count.saturating_sub(threshold) {
+            if !self.delegate.can_load_more(cx) {
+                return;
+            }
+
+            self._load_more_task = cx.spawn_in(window, |view, mut cx| async move {
+                _ = view.update_in(&mut cx, |view, window, cx| {
+                    view.delegate.load_more(window, cx);
+                });
+            });
+        }
+    }
+
+    fn on_action_cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_selected_index(None, window, cx);
+        self.delegate.cancel(window, cx);
+        cx.emit(ListEvent::Cancel);
         cx.notify();
     }
 
-    fn on_action_confirm(&mut self, _: &Confirm, cx: &mut ViewContext<Self>) {
+    fn on_action_confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
         if self.delegate.items_count(cx) == 0 {
             return;
         }
 
-        self.delegate.confirm(self.selected_index, cx);
+        let Some(ix) = self.selected_index else {
+            return;
+        };
+
+        self.delegate.confirm(ix, window, cx);
+        cx.emit(ListEvent::Confirm(ix));
         cx.notify();
     }
 
-    fn on_action_select_prev(&mut self, _: &SelectPrev, cx: &mut ViewContext<Self>) {
-        if self.delegate.items_count(cx) == 0 {
+    fn select_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected_index = Some(ix);
+        self.delegate.set_selected_index(Some(ix), window, cx);
+        self.scroll_to_selected_item(window, cx);
+        cx.emit(ListEvent::Select(ix));
+        cx.notify();
+    }
+
+    fn on_action_select_prev(
+        &mut self,
+        _: &SelectPrev,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items_count = self.delegate.items_count(cx);
+        if items_count == 0 {
             return;
         }
 
-        let selected_index = self.selected_index.unwrap_or(0);
+        let mut selected_index = self.selected_index.unwrap_or(0);
         if selected_index > 0 {
-            self.selected_index = Some(selected_index - 1);
+            selected_index = selected_index - 1;
         } else {
-            self.selected_index = Some(self.delegate.items_count(cx) - 1);
+            selected_index = items_count - 1;
         }
-
-        self.delegate.set_selected_index(self.selected_index, cx);
-        self.scroll_to_selected_item(cx);
-        cx.notify();
+        self.select_item(selected_index, window, cx);
     }
 
-    fn on_action_select_next(&mut self, _: &SelectNext, cx: &mut ViewContext<Self>) {
-        if self.delegate.items_count(cx) == 0 {
+    fn on_action_select_next(
+        &mut self,
+        _: &SelectNext,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items_count = self.delegate.items_count(cx);
+        if items_count == 0 {
             return;
         }
 
-        if let Some(selected_index) = self.selected_index {
-            if selected_index < self.delegate.items_count(cx) - 1 {
-                self.selected_index = Some(selected_index + 1);
+        let selected_index;
+        if let Some(ix) = self.selected_index {
+            if ix < items_count - 1 {
+                selected_index = ix + 1;
             } else {
-                self.selected_index = Some(0);
+                // When the last item is selected, select the first item.
+                selected_index = 0;
             }
         } else {
-            self.selected_index = Some(0);
+            // When no selected index, select the first item.
+            selected_index = 0;
         }
 
-        self.delegate.set_selected_index(self.selected_index, cx);
-        self.scroll_to_selected_item(cx);
-        cx.notify();
+        self.select_item(selected_index, window, cx);
     }
 
-    fn render_list_item(&mut self, ix: usize, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render_list_item(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.selected_index == Some(ix);
+        let right_clicked = self.right_clicked_index == Some(ix);
+
         div()
             .id("list-item")
             .w_full()
             .relative()
-            .children(self.delegate.render_item(ix, cx))
-            .when_some(self.selected_index, |this, selected_index| {
-                this.when(ix == selected_index, |this| {
+            .children(self.delegate.render_item(ix, window, cx))
+            .when(self.selectable, |this| {
+                this.when(selected || right_clicked, |this| {
                     this.child(
                         div()
                             .absolute()
@@ -326,47 +478,35 @@ where
                             .left(px(0.))
                             .right(px(0.))
                             .bottom(px(0.))
-                            .bg(cx.theme().list_active)
+                            .when(selected, |this| this.bg(cx.theme().list_active))
                             .border_1()
                             .border_color(cx.theme().list_active_border),
                     )
                 })
-            })
-            .when(self.right_clicked_index == Some(ix), |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top(px(0.))
-                        .left(px(0.))
-                        .right(px(0.))
-                        .bottom(px(0.))
-                        .border_1()
-                        .border_color(cx.theme().list_active_border),
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| {
+                        this.right_clicked_index = None;
+                        this.selected_index = Some(ix);
+                        this.on_action_confirm(&Confirm, window, cx);
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, _, _, cx| {
+                        this.right_clicked_index = Some(ix);
+                        cx.notify();
+                    }),
                 )
             })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, cx| {
-                    this.right_clicked_index = None;
-                    this.selected_index = Some(ix);
-                    this.on_action_confirm(&Confirm, cx);
-                }),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, _, cx| {
-                    this.right_clicked_index = Some(ix);
-                    cx.notify();
-                }),
-            )
     }
 }
 
-impl<D> FocusableView for List<D>
+impl<D> Focusable for List<D>
 where
     D: ListDelegate,
 {
-    fn focus_handle(&self, cx: &AppContext) -> FocusHandle {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
         if let Some(query_input) = &self.query_input {
             query_input.focus_handle(cx)
         } else {
@@ -374,15 +514,16 @@ where
         }
     }
 }
-
+impl<D> EventEmitter<ListEvent> for List<D> where D: ListDelegate {}
 impl<D> Render for List<D>
 where
     D: ListDelegate,
 {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        let view = cx.view().clone();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.model().clone();
         let vertical_scroll_handle = self.vertical_scroll_handle.clone();
         let items_count = self.delegate.items_count(cx);
+        let loading = self.delegate.loading(cx);
         let sizing_behavior = if self.max_height.is_some() {
             ListSizingBehavior::Infer
         } else {
@@ -391,7 +532,7 @@ where
 
         let initial_view = if let Some(input) = &self.query_input {
             if input.read(cx).text().is_empty() {
-                self.delegate().render_initial(cx)
+                self.delegate().render_initial(window, cx)
             } else {
                 None
             }
@@ -406,10 +547,6 @@ where
             .size_full()
             .relative()
             .overflow_hidden()
-            .on_action(cx.listener(Self::on_action_cancel))
-            .on_action(cx.listener(Self::on_action_confirm))
-            .on_action(cx.listener(Self::on_action_select_next))
-            .on_action(cx.listener(Self::on_action_select_prev))
             .when_some(self.query_input.clone(), |this, input| {
                 this.child(
                     div()
@@ -422,44 +559,62 @@ where
                         .child(input),
                 )
             })
-            .map(|this| {
-                if let Some(view) = initial_view {
-                    this.child(view)
-                } else {
-                    this.child(
-                        v_flex()
-                            .flex_grow()
-                            .relative()
-                            .when_some(self.max_height, |this, h| this.max_h(h))
-                            .overflow_hidden()
-                            .when(items_count == 0, |this| {
-                                this.child(self.delegate().render_empty(cx))
-                            })
-                            .when(items_count > 0, |this| {
-                                this.child(
-                                    uniform_list(view, "uniform-list", items_count, {
-                                        move |list, visible_range, cx| {
-                                            visible_range
-                                                .map(|ix| list.render_list_item(ix, cx))
-                                                .collect::<Vec<_>>()
-                                        }
-                                    })
-                                    .flex_grow()
-                                    .with_sizing_behavior(sizing_behavior)
-                                    .track_scroll(vertical_scroll_handle)
-                                    .into_any_element(),
-                                )
-                            })
-                            .children(self.render_scrollbar(cx)),
-                    )
-                }
+            .when(loading, |this| {
+                this.child(self.delegate().render_loading(window, cx))
             })
-            // Click out to cancel right clicked row
-            .when(self.right_clicked_index.is_some(), |this| {
-                this.on_mouse_down_out(cx.listener(|this, _, cx| {
-                    this.right_clicked_index = None;
-                    cx.notify();
-                }))
+            .when(!loading, |this| {
+                this.on_action(cx.listener(Self::on_action_cancel))
+                    .on_action(cx.listener(Self::on_action_confirm))
+                    .on_action(cx.listener(Self::on_action_select_next))
+                    .on_action(cx.listener(Self::on_action_select_prev))
+                    .map(|this| {
+                        if let Some(view) = initial_view {
+                            this.child(view)
+                        } else {
+                            this.child(
+                                v_flex()
+                                    .flex_grow()
+                                    .relative()
+                                    .when_some(self.max_height, |this, h| this.max_h(h))
+                                    .overflow_hidden()
+                                    .when(items_count == 0, |this| {
+                                        this.child(self.delegate().render_empty(window, cx))
+                                    })
+                                    .when(items_count > 0, |this| {
+                                        this.child(
+                                            uniform_list(view, "uniform-list", items_count, {
+                                                move |list, visible_range, window, cx| {
+                                                    list.load_more_if_need(
+                                                        items_count,
+                                                        visible_range.end,
+                                                        window,
+                                                        cx,
+                                                    );
+
+                                                    visible_range
+                                                        .map(|ix| {
+                                                            list.render_list_item(ix, window, cx)
+                                                        })
+                                                        .collect::<Vec<_>>()
+                                                }
+                                            })
+                                            .flex_grow()
+                                            .with_sizing_behavior(sizing_behavior)
+                                            .track_scroll(vertical_scroll_handle)
+                                            .into_any_element(),
+                                        )
+                                    })
+                                    .children(self.render_scrollbar(window, cx)),
+                            )
+                        }
+                    })
+                    // Click out to cancel right clicked row
+                    .when(self.right_clicked_index.is_some(), |this| {
+                        this.on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.right_clicked_index = None;
+                            cx.notify();
+                        }))
+                    })
             })
     }
 }

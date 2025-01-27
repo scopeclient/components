@@ -1,9 +1,8 @@
-use crate::theme::ActiveTheme;
-use crate::Selectable;
+use crate::{ActiveTheme, Selectable};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, Div, ElementId, InteractiveElement, IntoElement, ParentElement as _,
-    RenderOnce, Stateful, StatefulInteractiveElement, Styled, WindowContext,
+    div, px, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement, ParentElement as _,
+    RenderOnce, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 
 #[derive(IntoElement)]
@@ -42,6 +41,12 @@ impl Tab {
         self.suffix = Some(suffix.into());
         self
     }
+
+    /// Set disabled state to the tab
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
 }
 
 impl Selectable for Tab {
@@ -70,11 +75,13 @@ impl Styled for Tab {
 }
 
 impl RenderOnce for Tab {
-    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let (text_color, bg_color) = match (self.selected, self.disabled) {
-            (true, _) => (cx.theme().tab_active_foreground, cx.theme().tab_active),
-            (false, true) => (cx.theme().tab_foreground.opacity(0.5), cx.theme().tab),
+            (true, false) => (cx.theme().tab_active_foreground, cx.theme().tab_active),
             (false, false) => (cx.theme().muted_foreground, cx.theme().tab),
+            // disabled
+            (true, true) => (cx.theme().muted_foreground, cx.theme().tab_active),
+            (false, true) => (cx.theme().muted_foreground, cx.theme().tab),
         };
 
         self.base
@@ -89,7 +96,6 @@ impl RenderOnce for Tab {
             .border_color(cx.theme().transparent)
             .when(self.selected, |this| this.border_color(cx.theme().border))
             .text_sm()
-            .when(self.disabled, |this| this)
             .when_some(self.prefix, |this, prefix| {
                 this.child(prefix).text_color(text_color)
             })

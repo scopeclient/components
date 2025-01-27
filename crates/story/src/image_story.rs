@@ -1,5 +1,7 @@
-use gpui::{px, ParentElement as _, Render, Styled, View, VisualContext as _, WindowContext};
-use ui::{h_flex, v_flex, SvgImg};
+use gpui::{
+    px, App, AppContext, Entity, FocusHandle, Focusable, ParentElement as _, Render, Styled, Window,
+};
+use ui::{dock::PanelControl, h_flex, v_flex, SvgImg};
 
 const GOOGLE_LOGO: &str = include_str!("./fixtures/google.svg");
 const PIE_JSON: &str = include_str!("./fixtures/pie.json");
@@ -16,13 +18,17 @@ impl super::Story for ImageStory {
         "Image"
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
+    }
+
+    fn zoomable() -> Option<PanelControl> {
+        Some(PanelControl::Toolbar)
     }
 }
 
 impl ImageStory {
-    pub fn new(cx: &mut WindowContext) -> Self {
+    pub fn new(_: &mut Window, cx: &mut App) -> Self {
         let chart = charts_rs::PieChart::from_json(PIE_JSON).unwrap();
 
         Self {
@@ -33,33 +39,37 @@ impl ImageStory {
         }
     }
 
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(|cx| Self::new(cx))
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 }
 
-impl gpui::FocusableView for ImageStory {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for ImageStory {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ImageStory {
-    fn render(&mut self, _cx: &mut gpui::ViewContext<Self>) -> impl gpui::IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
         v_flex()
             .gap_4()
             .size_full()
-            .items_center()
+            .items_start()
             .child(
                 h_flex()
                     .size_full()
                     .child(self.google_logo.clone().size(px(300.)).flex_grow())
-                    .child(self.google_logo.clone().w(px(300.)).h(px(300.)).flex_grow())
+                    .child(self.google_logo.clone().size(px(300.)).flex_grow())
                     .child(self.google_logo.clone().size_80().flex_grow())
                     .child(self.google_logo.clone().size_12().flex_grow())
-                    .child(self.google_logo.clone().w(px(300.)).h(px(300.))),
+                    .child(self.google_logo.clone().size(px(300.))),
             )
-            .child(self.inbox_img.clone().w(px(24.)).h(px(24.)))
-            .child(self.pie_chart.clone().size_full())
+            .child(self.inbox_img.clone().flex_shrink_0().size(px(64.)))
+            .child(self.pie_chart.clone().flex_shrink_0().w_full().h(px(400.)))
     }
 }

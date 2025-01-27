@@ -1,8 +1,8 @@
-use crate::{h_flex, theme::ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable as _};
+use crate::{h_flex, ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable as _};
 use gpui::{
-    div, prelude::FluentBuilder as _, AnyElement, ClickEvent, Div, ElementId, InteractiveElement,
-    IntoElement, MouseButton, MouseMoveEvent, ParentElement, RenderOnce, Stateful,
-    StatefulInteractiveElement as _, Styled, WindowContext,
+    div, prelude::FluentBuilder as _, AnyElement, App, ClickEvent, Div, ElementId,
+    InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, ParentElement, RenderOnce,
+    Stateful, StatefulInteractiveElement as _, Styled, Window,
 };
 use smallvec::SmallVec;
 
@@ -14,9 +14,9 @@ pub struct ListItem {
     selected: bool,
     confirmed: bool,
     check_icon: Option<Icon>,
-    on_click: Option<Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>>,
-    on_mouse_enter: Option<Box<dyn Fn(&MouseMoveEvent, &mut WindowContext) + 'static>>,
-    suffix: Option<Box<dyn Fn(&mut WindowContext) -> AnyElement + 'static>>,
+    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_mouse_enter: Option<Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static>>,
+    suffix: Option<Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>>,
     children: SmallVec<[AnyElement; 2]>,
 }
 
@@ -63,21 +63,26 @@ impl ListItem {
     /// Set the suffix element of the input field, for example a clear button.
     pub fn suffix<F, E>(mut self, builder: F) -> Self
     where
-        F: Fn(&mut WindowContext) -> E + 'static,
+        F: Fn(&mut Window, &mut App) -> E + 'static,
         E: IntoElement,
     {
-        self.suffix = Some(Box::new(move |cx| builder(cx).into_any_element()));
+        self.suffix = Some(Box::new(move |window, cx| {
+            builder(window, cx).into_any_element()
+        }));
         self
     }
 
-    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static) -> Self {
+    pub fn on_click(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
 
     pub fn on_mouse_enter(
         mut self,
-        handler: impl Fn(&MouseMoveEvent, &mut WindowContext) + 'static,
+        handler: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_mouse_enter = Some(Box::new(handler));
         self
@@ -115,36 +120,29 @@ impl ParentElement for ListItem {
 }
 
 impl RenderOnce for ListItem {
-    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
-        let is_active = self.selected || self.confirmed;
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let is_active = self.confirmed || self.selected;
 
         self.base
             .text_color(cx.theme().foreground)
             .relative()
             .items_center()
             .justify_between()
-            .when_some(self.on_click, |this, on_click| {
-                if !self.disabled {
+            .when(is_active, |this| this.bg(cx.theme().list_active))
+            .when(!self.disabled, |this| {
+                this.when_some(self.on_click, |this, on_click| {
                     this.cursor_pointer()
-                        .on_mouse_down(MouseButton::Left, move |_, cx| {
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                             cx.stop_propagation();
                         })
                         .on_click(on_click)
-                } else {
-                    this
-                }
-            })
-            .when(is_active, |this| this.bg(cx.theme().list_active))
-            .when(!is_active && !self.disabled, |this| {
-                this.hover(|this| this.bg(cx.theme().list_hover))
-            })
-            // Mouse enter
-            .when_some(self.on_mouse_enter, |this, on_mouse_enter| {
-                if !self.disabled {
-                    this.on_mouse_move(move |ev, cx| (on_mouse_enter)(ev, cx))
-                } else {
-                    this
-                }
+                })
+                .when_some(self.on_mouse_enter, |this, on_mouse_enter| {
+                    this.on_mouse_move(move |ev, window, cx| (on_mouse_enter)(ev, window, cx))
+                })
+                .when(!is_active, |this| {
+                    this.hover(|this| this.bg(cx.theme().list_hover))
+                })
             })
             .child(
                 h_flex()
@@ -164,6 +162,6 @@ impl RenderOnce for ListItem {
                         )
                     }),
             )
-            .when_some(self.suffix, |this, suffix| this.child(suffix(cx)))
+            .when_some(self.suffix, |this, suffix| this.child(suffix(window, cx)))
     }
 }

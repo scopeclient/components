@@ -1,39 +1,23 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use gpui::{
-    hsla, point, AppContext, BoxShadow, Global, Hsla, ModelContext, Pixels, SharedString,
-    ViewContext, WindowAppearance, WindowContext,
+    hsla, point, App, BoxShadow, Global, Hsla, Pixels, SharedString, Window, WindowAppearance,
 };
 
-pub fn init(cx: &mut AppContext) {
-    Theme::sync_system_appearance(cx)
+use crate::{scroll::ScrollbarShow, Colorize as _};
+
+pub fn init(cx: &mut App) {
+    Theme::sync_system_appearance(None, cx)
 }
 
 pub trait ActiveTheme {
     fn theme(&self) -> &Theme;
 }
 
-impl ActiveTheme for AppContext {
+impl ActiveTheme for App {
+    #[inline]
     fn theme(&self) -> &Theme {
-        Theme::get_global(self)
-    }
-}
-
-impl<'a, V> ActiveTheme for ViewContext<'a, V> {
-    fn theme(&self) -> &Theme {
-        self.deref().theme()
-    }
-}
-
-impl<'a, V> ActiveTheme for ModelContext<'a, V> {
-    fn theme(&self) -> &Theme {
-        self.deref().theme()
-    }
-}
-
-impl<'a> ActiveTheme for WindowContext<'a> {
-    fn theme(&self) -> &Theme {
-        self.deref().theme()
+        Theme::global(self)
     }
 }
 
@@ -42,6 +26,7 @@ impl<'a> ActiveTheme for WindowContext<'a> {
 /// - h: 0..360.0
 /// - s: 0.0..100.0
 /// - l: 0.0..100.0
+#[inline]
 pub fn hsl(h: f32, s: f32, l: f32) -> Hsla {
     hsla(h / 360., s / 100.0, l / 100.0, 1.0)
 }
@@ -53,6 +38,7 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Hsla {
 /// If CSS is `box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.1);`
 ///
 /// Then the equivalent in Rust is `box_shadow(0., 0., 10., 0., hsla(0., 0., 0., 0.1))`
+#[inline]
 pub fn box_shadow(
     x: impl Into<Pixels>,
     y: impl Into<Pixels>,
@@ -67,79 +53,7 @@ pub fn box_shadow(
         color,
     }
 }
-pub trait Colorize {
-    fn opacity(&self, opacity: f32) -> Hsla;
-    fn divide(&self, divisor: f32) -> Hsla;
-    fn invert(&self) -> Hsla;
-    fn invert_l(&self) -> Hsla;
-    fn lighten(&self, amount: f32) -> Hsla;
-    fn darken(&self, amount: f32) -> Hsla;
-    fn apply(&self, base_color: Hsla) -> Hsla;
-}
 
-impl Colorize for Hsla {
-    /// Returns a new color with the given opacity.
-    ///
-    /// The opacity is a value between 0.0 and 1.0, where 0.0 is fully transparent and 1.0 is fully opaque.
-    fn opacity(&self, factor: f32) -> Hsla {
-        Hsla {
-            a: self.a * factor.clamp(0.0, 1.0),
-            ..*self
-        }
-    }
-
-    /// Returns a new color with each channel divided by the given divisor.
-    ///
-    /// The divisor in range of 0.0 .. 1.0
-    fn divide(&self, divisor: f32) -> Hsla {
-        Hsla {
-            a: divisor,
-            ..*self
-        }
-    }
-
-    /// Return inverted color
-    fn invert(&self) -> Hsla {
-        Hsla {
-            h: (self.h + 1.8) % 3.6,
-            s: 1.0 - self.s,
-            l: 1.0 - self.l,
-            a: self.a,
-        }
-    }
-
-    /// Return inverted lightness
-    fn invert_l(&self) -> Hsla {
-        Hsla {
-            l: 1.0 - self.l,
-            ..*self
-        }
-    }
-
-    /// Return a new color with the lightness increased by the given factor.
-    fn lighten(&self, factor: f32) -> Hsla {
-        let l = self.l + (1.0 - self.l) * factor.clamp(0.0, 1.0).min(1.0);
-
-        Hsla { l, ..*self }
-    }
-
-    /// Return a new color with the darkness increased by the given factor.
-    fn darken(&self, factor: f32) -> Hsla {
-        let l = self.l * (1.0 - factor.clamp(0.0, 1.0).min(1.0));
-
-        Hsla { l, ..*self }
-    }
-
-    /// Return a new color with the same lightness and alpha but different hue and saturation.
-    fn apply(&self, new_color: Hsla) -> Hsla {
-        Hsla {
-            h: new_color.h,
-            s: new_color.s,
-            l: self.l,
-            a: self.a,
-        }
-    }
-}
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ThemeColor {
     pub accent: Hsla,
@@ -151,10 +65,11 @@ pub struct ThemeColor {
     pub border: Hsla,
     pub card: Hsla,
     pub card_foreground: Hsla,
-    pub destructive: Hsla,
-    pub destructive_active: Hsla,
-    pub destructive_foreground: Hsla,
-    pub destructive_hover: Hsla,
+    pub caret: Hsla,
+    pub danger: Hsla,
+    pub danger_active: Hsla,
+    pub danger_foreground: Hsla,
+    pub danger_hover: Hsla,
     pub drag_border: Hsla,
     pub drop_target: Hsla,
     pub foreground: Hsla,
@@ -181,11 +96,19 @@ pub struct ThemeColor {
     pub ring: Hsla,
     pub scrollbar: Hsla,
     pub scrollbar_thumb: Hsla,
+    pub scrollbar_thumb_hover: Hsla,
     pub secondary: Hsla,
     pub secondary_active: Hsla,
     pub secondary_foreground: Hsla,
     pub secondary_hover: Hsla,
     pub selection: Hsla,
+    pub sidebar: Hsla,
+    pub sidebar_accent: Hsla,
+    pub sidebar_accent_foreground: Hsla,
+    pub sidebar_border: Hsla,
+    pub sidebar_foreground: Hsla,
+    pub sidebar_primary: Hsla,
+    pub sidebar_primary_foreground: Hsla,
     pub skeleton: Hsla,
     pub slider_bar: Hsla,
     pub slider_thumb: Hsla,
@@ -204,6 +127,7 @@ pub struct ThemeColor {
     pub table_row_border: Hsla,
     pub title_bar: Hsla,
     pub title_bar_border: Hsla,
+    pub window_border: Hsla,
 }
 
 impl ThemeColor {
@@ -218,10 +142,11 @@ impl ThemeColor {
             border: hsl(240.0, 5.9, 90.0),
             card: hsl(0.0, 0.0, 100.0),
             card_foreground: hsl(240.0, 10.0, 3.9),
-            destructive: hsl(0.0, 84.2, 60.2),
-            destructive_active: hsl(0.0, 84.2, 47.0),
-            destructive_foreground: hsl(0.0, 0.0, 98.0),
-            destructive_hover: hsl(0.0, 84.2, 65.0),
+            caret: hsl(240.0, 10., 3.9),
+            danger: hsl(0.0, 84.2, 60.2),
+            danger_active: hsl(0.0, 84.2, 47.0),
+            danger_foreground: hsl(0.0, 0.0, 98.0),
+            danger_hover: hsl(0.0, 84.2, 65.0),
             drag_border: crate::blue_500(),
             drop_target: hsl(235.0, 30., 44.0).opacity(0.25),
             foreground: hsl(240.0, 10., 3.9),
@@ -234,7 +159,7 @@ impl ThemeColor {
             list_active_border: hsl(211.0, 97.0, 85.0),
             list_even: hsl(240.0, 5.0, 96.0),
             list_head: hsl(0.0, 0.0, 100.),
-            list_hover: hsl(211.0, 97.0, 85.0).opacity(0.2),
+            list_hover: hsl(240.0, 4.8, 95.0),
             muted: hsl(240.0, 4.8, 95.9),
             muted_foreground: hsl(240.0, 3.8, 46.1),
             panel: hsl(0.0, 0.0, 100.0),
@@ -246,13 +171,21 @@ impl ThemeColor {
             primary_hover: hsl(223.0, 5.9, 15.0),
             progress_bar: hsl(223.0, 5.9, 10.0),
             ring: hsl(240.0, 5.9, 65.0),
-            scrollbar: hsl(0., 0., 97.).opacity(0.3),
-            scrollbar_thumb: hsl(0., 0., 69.),
+            scrollbar: hsl(0., 0., 97.).opacity(0.75),
+            scrollbar_thumb: hsl(0., 0., 69.).opacity(0.9),
+            scrollbar_thumb_hover: hsl(0., 0., 59.),
             secondary: hsl(240.0, 5.9, 96.9),
-            secondary_active: hsl(240.0, 5.9, 93.),
+            secondary_active: hsl(240.0, 5.9, 90.),
             secondary_foreground: hsl(240.0, 59.0, 10.),
             secondary_hover: hsl(240.0, 5.9, 98.),
             selection: hsl(211.0, 97.0, 85.0),
+            sidebar: hsl(0.0, 0.0, 98.0),
+            sidebar_accent: hsl(240.0, 4.8, 92.),
+            sidebar_accent_foreground: hsl(240.0, 5.9, 10.0),
+            sidebar_border: hsl(220.0, 13.0, 91.0),
+            sidebar_foreground: hsl(240.0, 5.3, 26.1),
+            sidebar_primary: hsl(240.0, 5.9, 10.0),
+            sidebar_primary_foreground: hsl(0.0, 0.0, 98.0),
             skeleton: hsl(223.0, 5.9, 10.0).opacity(0.1),
             slider_bar: hsl(223.0, 5.9, 10.0),
             slider_thumb: hsl(0.0, 0.0, 100.0),
@@ -267,10 +200,11 @@ impl ThemeColor {
             table_even: hsl(240.0, 5.0, 96.0),
             table_head: hsl(0.0, 0.0, 100.),
             table_head_foreground: hsl(240.0, 10., 3.9).opacity(0.7),
-            table_hover: hsl(211.0, 97.0, 85.0).opacity(0.2),
-            table_row_border: hsl(240.0, 5.9, 90.0).opacity(0.5),
+            table_hover: hsl(240.0, 4.8, 95.0),
+            table_row_border: hsl(240.0, 7.7, 94.5),
             title_bar: hsl(0.0, 0.0, 100.),
             title_bar_border: hsl(240.0, 5.9, 90.0),
+            window_border: hsl(240.0, 5.9, 78.0),
         }
     }
 
@@ -283,12 +217,13 @@ impl ThemeColor {
             accordion_hover: hsl(240.0, 3.7, 15.9).opacity(0.7),
             background: hsl(0.0, 0.0, 8.0),
             border: hsl(240.0, 3.7, 16.9),
-            card: hsl(299.0, 2., 11.),
+            card: hsl(0.0, 0.0, 8.0),
             card_foreground: hsl(0.0, 0.0, 78.0),
-            destructive: hsl(0.0, 62.8, 30.6),
-            destructive_active: hsl(0.0, 62.8, 20.6),
-            destructive_foreground: hsl(0.0, 0.0, 78.0),
-            destructive_hover: hsl(0.0, 62.8, 35.6),
+            caret: hsl(0., 0., 78.),
+            danger: hsl(0.0, 62.8, 30.6),
+            danger_active: hsl(0.0, 62.8, 20.6),
+            danger_foreground: hsl(0.0, 0.0, 78.0),
+            danger_hover: hsl(0.0, 62.8, 35.6),
             drag_border: crate::blue_500(),
             drop_target: hsl(235.0, 30., 44.0).opacity(0.1),
             foreground: hsl(0., 0., 78.),
@@ -297,11 +232,11 @@ impl ThemeColor {
             link_active: hsl(221.0, 83.0, 53.0).darken(0.2),
             link_hover: hsl(221.0, 83.0, 53.0).lighten(0.2),
             list: hsl(0.0, 0.0, 8.0),
-            list_active: hsl(211.0, 97.0, 22.0).opacity(0.2),
-            list_active_border: hsl(211.0, 97.0, 22.0),
+            list_active: hsl(240.0, 3.7, 15.0).opacity(0.2),
+            list_active_border: hsl(240.0, 5.9, 35.5),
             list_even: hsl(240.0, 3.7, 10.0),
             list_head: hsl(0.0, 0.0, 8.0),
-            list_hover: hsl(211.0, 97.0, 22.0).opacity(0.2),
+            list_hover: hsl(240.0, 3.7, 15.9),
             muted: hsl(240.0, 3.7, 15.9),
             muted_foreground: hsl(240.0, 5.0, 64.9),
             panel: hsl(299.0, 2., 11.),
@@ -313,13 +248,21 @@ impl ThemeColor {
             primary_hover: hsl(223.0, 0.0, 90.0),
             progress_bar: hsl(223.0, 0.0, 98.0),
             ring: hsl(240.0, 4.9, 83.9),
-            scrollbar: hsl(240., 1., 15.).opacity(0.3),
-            scrollbar_thumb: hsl(0., 0., 68.),
+            scrollbar: hsl(240., 1., 15.).opacity(0.75),
+            scrollbar_thumb: hsl(0., 0., 48.).opacity(0.9),
+            scrollbar_thumb_hover: hsl(0., 0., 68.),
             secondary: hsl(240.0, 0., 13.0),
             secondary_active: hsl(240.0, 0., 10.),
             secondary_foreground: hsl(0.0, 0.0, 78.0),
             secondary_hover: hsl(240.0, 0., 15.),
             selection: hsl(211.0, 97.0, 22.0),
+            sidebar: hsl(240.0, 0.0, 10.0),
+            sidebar_accent: hsl(240.0, 3.7, 15.9),
+            sidebar_accent_foreground: hsl(240.0, 4.8, 95.9),
+            sidebar_border: hsl(240.0, 3.7, 15.9),
+            sidebar_foreground: hsl(240.0, 4.8, 95.9),
+            sidebar_primary: hsl(0.0, 0.0, 98.0),
+            sidebar_primary_foreground: hsl(240.0, 5.9, 10.0),
             skeleton: hsla(223.0, 0.0, 98.0, 0.1),
             slider_bar: hsl(223.0, 0.0, 98.0),
             slider_thumb: hsl(0.0, 0.0, 8.0),
@@ -329,96 +272,59 @@ impl ThemeColor {
             tab_bar: hsl(299.0, 0., 5.5),
             tab_foreground: hsl(0., 0., 78.),
             table: hsl(0.0, 0.0, 8.0),
-            table_active: hsl(211.0, 97.0, 22.0).opacity(0.2),
-            table_active_border: hsl(211.0, 97.0, 22.0),
+            table_active: hsl(240.0, 3.7, 15.0).opacity(0.2),
+            table_active_border: hsl(240.0, 5.9, 35.5),
             table_even: hsl(240.0, 3.7, 10.0),
             table_head: hsl(0.0, 0.0, 8.0),
             table_head_foreground: hsl(0., 0., 78.).opacity(0.7),
-            table_hover: hsl(211.0, 97.0, 22.0).opacity(0.2),
+            table_hover: hsl(240.0, 3.7, 15.9).opacity(0.5),
             table_row_border: hsl(240.0, 3.7, 16.9).opacity(0.5),
             title_bar: hsl(0., 0., 9.7),
             title_bar_border: hsl(240.0, 3.7, 15.9),
+            window_border: hsl(240.0, 3.7, 28.0),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Theme {
+    colors: ThemeColor,
+
     pub mode: ThemeMode,
-    pub accent: Hsla,
-    pub accent_foreground: Hsla,
-    pub accordion: Hsla,
-    pub accordion_active: Hsla,
-    pub accordion_hover: Hsla,
-    pub background: Hsla,
-    pub border: Hsla,
-    pub card: Hsla,
-    pub card_foreground: Hsla,
-    pub destructive: Hsla,
-    pub destructive_active: Hsla,
-    pub destructive_foreground: Hsla,
-    pub destructive_hover: Hsla,
-    pub drag_border: Hsla,
-    pub drop_target: Hsla,
     pub font_family: SharedString,
     pub font_size: f32,
-    pub foreground: Hsla,
-    pub input: Hsla,
-    pub link: Hsla,
-    pub link_active: Hsla,
-    pub link_hover: Hsla,
-    pub list: Hsla,
-    pub list_active: Hsla,
-    pub list_active_border: Hsla,
-    pub list_even: Hsla,
-    pub list_head: Hsla,
-    pub list_hover: Hsla,
-    pub muted: Hsla,
-    pub muted_foreground: Hsla,
-    pub panel: Hsla,
-    pub popover: Hsla,
-    pub popover_foreground: Hsla,
-    pub primary: Hsla,
-    pub primary_active: Hsla,
-    pub primary_foreground: Hsla,
-    pub primary_hover: Hsla,
-    pub progress_bar: Hsla,
     pub radius: f32,
-    pub ring: Hsla,
-    pub scrollbar: Hsla,
-    pub scrollbar_thumb: Hsla,
-    pub secondary: Hsla,
-    pub secondary_active: Hsla,
-    pub secondary_foreground: Hsla,
-    pub secondary_hover: Hsla,
-    pub selection: Hsla,
     pub shadow: bool,
-    pub skeleton: Hsla,
-    pub slider_bar: Hsla,
-    pub slider_thumb: Hsla,
-    pub tab: Hsla,
-    pub tab_active: Hsla,
-    pub tab_active_foreground: Hsla,
-    pub tab_bar: Hsla,
-    pub tab_foreground: Hsla,
-    pub table: Hsla,
-    pub table_active: Hsla,
-    pub table_active_border: Hsla,
-    pub table_even: Hsla,
-    pub table_head: Hsla,
-    pub table_head_foreground: Hsla,
-    pub table_hover: Hsla,
-    pub table_row_border: Hsla,
-    pub title_bar: Hsla,
-    pub title_bar_border: Hsla,
     pub transparent: Hsla,
+    /// Show the scrollbar mode, default: Scrolling
+    pub scrollbar_show: ScrollbarShow,
+}
+
+impl Deref for Theme {
+    type Target = ThemeColor;
+
+    fn deref(&self) -> &Self::Target {
+        &self.colors
+    }
+}
+
+impl DerefMut for Theme {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.colors
+    }
 }
 
 impl Global for Theme {}
 
 impl Theme {
-    pub fn get_global(cx: &AppContext) -> &Self {
-        cx.global::<Self>()
+    /// Returns the global theme reference
+    pub fn global(cx: &App) -> &Theme {
+        cx.global::<Theme>()
+    }
+
+    /// Returns the global theme mutable reference
+    pub fn global_mut(cx: &mut App) -> &mut Theme {
+        cx.global_mut::<Theme>()
     }
 
     /// Apply a mask color to the theme.
@@ -429,6 +335,7 @@ impl Theme {
         self.foreground = self.foreground.apply(mask_color);
         self.card = self.card.apply(mask_color);
         self.card_foreground = self.card_foreground.apply(mask_color);
+        self.caret = self.caret.apply(mask_color);
         self.popover = self.popover.apply(mask_color);
         self.popover_foreground = self.popover_foreground.apply(mask_color);
         self.primary = self.primary.apply(mask_color);
@@ -439,10 +346,10 @@ impl Theme {
         self.secondary_hover = self.secondary_hover.apply(mask_color);
         self.secondary_active = self.secondary_active.apply(mask_color);
         self.secondary_foreground = self.secondary_foreground.apply(mask_color);
-        // self.destructive = self.destructive.apply(mask_color);
-        // self.destructive_hover = self.destructive_hover.apply(mask_color);
-        // self.destructive_active = self.destructive_active.apply(mask_color);
-        // self.destructive_foreground = self.destructive_foreground.apply(mask_color);
+        // self.danger = self.danger.apply(mask_color);
+        // self.danger_hover = self.danger_hover.apply(mask_color);
+        // self.danger_active = self.danger_active.apply(mask_color);
+        // self.danger_foreground = self.danger_foreground.apply(mask_color);
         self.muted = self.muted.apply(mask_color);
         self.muted_foreground = self.muted_foreground.apply(mask_color);
         self.accent = self.accent.apply(mask_color);
@@ -453,6 +360,7 @@ impl Theme {
         // self.selection = self.selection.apply(mask_color);
         self.scrollbar = self.scrollbar.apply(mask_color);
         self.scrollbar_thumb = self.scrollbar_thumb.apply(mask_color);
+        self.scrollbar_thumb_hover = self.scrollbar_thumb_hover.apply(mask_color);
         self.panel = self.panel.apply(mask_color);
         self.drag_border = self.drag_border.apply(mask_color);
         self.drop_target = self.drop_target.apply(mask_color);
@@ -467,13 +375,13 @@ impl Theme {
         self.list = self.list.apply(mask_color);
         self.list_even = self.list_even.apply(mask_color);
         self.list_head = self.list_head.apply(mask_color);
-        // self.list_active = self.list_active.apply(mask_color);
-        // self.list_active_border = self.list_active_border.apply(mask_color);
+        self.list_active = self.list_active.apply(mask_color);
+        self.list_active_border = self.list_active_border.apply(mask_color);
         self.list_hover = self.list_hover.apply(mask_color);
         self.table = self.table.apply(mask_color);
         self.table_even = self.table_even.apply(mask_color);
-        // self.table_active = self.table_active.apply(mask_color);
-        // self.table_active_border = self.table_active_border.apply(mask_color);
+        self.table_active = self.table_active.apply(mask_color);
+        self.table_active_border = self.table_active_border.apply(mask_color);
         self.table_hover = self.table_hover.apply(mask_color);
         self.table_row_border = self.table_row_border.apply(mask_color);
         self.table_head = self.table_head.apply(mask_color);
@@ -485,6 +393,42 @@ impl Theme {
         self.accordion = self.accordion.apply(mask_color);
         self.accordion_hover = self.accordion_hover.apply(mask_color);
         self.accordion_active = self.accordion_active.apply(mask_color);
+        self.title_bar = self.title_bar.apply(mask_color);
+        self.title_bar_border = self.title_bar_border.apply(mask_color);
+        self.sidebar = self.sidebar.apply(mask_color);
+        self.sidebar_accent = self.sidebar_accent.apply(mask_color);
+        self.sidebar_accent_foreground = self.sidebar_accent_foreground.apply(mask_color);
+        self.sidebar_border = self.sidebar_border.apply(mask_color);
+        self.sidebar_foreground = self.sidebar_foreground.apply(mask_color);
+        self.sidebar_primary = self.sidebar_primary.apply(mask_color);
+        self.sidebar_primary_foreground = self.sidebar_primary_foreground.apply(mask_color);
+    }
+
+    /// Sync the theme with the system appearance
+    pub fn sync_system_appearance(window: Option<&mut Window>, cx: &mut App) {
+        match cx.window_appearance() {
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => {
+                Self::change(ThemeMode::Dark, window, cx)
+            }
+            WindowAppearance::Light | WindowAppearance::VibrantLight => {
+                Self::change(ThemeMode::Light, window, cx)
+            }
+        }
+    }
+
+    pub fn change(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
+        let colors = match mode {
+            ThemeMode::Light => ThemeColor::light(),
+            ThemeMode::Dark => ThemeColor::dark(),
+        };
+
+        let mut theme = Theme::from(colors);
+        theme.mode = mode;
+
+        cx.set_global(theme);
+        if let Some(window) = window {
+            window.refresh();
+        }
     }
 }
 
@@ -503,68 +447,8 @@ impl From<ThemeColor> for Theme {
             },
             radius: 4.0,
             shadow: true,
-            accent: colors.accent,
-            accent_foreground: colors.accent_foreground,
-            accordion: colors.accordion,
-            accordion_active: colors.accordion_active,
-            accordion_hover: colors.accordion_hover,
-            background: colors.background,
-            border: colors.border,
-            card: colors.card,
-            card_foreground: colors.card_foreground,
-            destructive: colors.destructive,
-            destructive_active: colors.destructive_active,
-            destructive_foreground: colors.destructive_foreground,
-            destructive_hover: colors.destructive_hover,
-            drag_border: colors.drag_border,
-            drop_target: colors.drop_target,
-            foreground: colors.foreground,
-            input: colors.input,
-            link: colors.link,
-            link_active: colors.link_active,
-            link_hover: colors.link_hover,
-            list: colors.list,
-            list_active: colors.list_active,
-            list_active_border: colors.list_active_border,
-            list_even: colors.list_even,
-            list_head: colors.list_head,
-            list_hover: colors.list_hover,
-            muted: colors.muted,
-            muted_foreground: colors.muted_foreground,
-            panel: colors.panel,
-            popover: colors.popover,
-            popover_foreground: colors.popover_foreground,
-            primary: colors.primary,
-            primary_active: colors.primary_active,
-            primary_foreground: colors.primary_foreground,
-            primary_hover: colors.primary_hover,
-            progress_bar: colors.progress_bar,
-            ring: colors.ring,
-            scrollbar: colors.scrollbar,
-            scrollbar_thumb: colors.scrollbar_thumb,
-            secondary: colors.secondary,
-            secondary_active: colors.secondary_active,
-            secondary_foreground: colors.secondary_foreground,
-            secondary_hover: colors.secondary_hover,
-            selection: colors.selection,
-            skeleton: colors.skeleton,
-            slider_bar: colors.slider_bar,
-            slider_thumb: colors.slider_thumb,
-            tab: colors.tab,
-            tab_active: colors.tab_active,
-            tab_active_foreground: colors.tab_active_foreground,
-            tab_bar: colors.tab_bar,
-            tab_foreground: colors.tab_foreground,
-            table: colors.table,
-            table_active: colors.table_active,
-            table_active_border: colors.table_active_border,
-            table_even: colors.table_even,
-            table_head: colors.table_head,
-            table_head_foreground: colors.table_head_foreground,
-            table_hover: colors.table_hover,
-            table_row_border: colors.table_row_border,
-            title_bar: colors.title_bar,
-            title_bar_border: colors.title_bar_border,
+            scrollbar_show: ScrollbarShow::default(),
+            colors,
         }
     }
 }
@@ -577,44 +461,8 @@ pub enum ThemeMode {
 }
 
 impl ThemeMode {
+    #[inline]
     pub fn is_dark(&self) -> bool {
         matches!(self, Self::Dark)
-    }
-}
-
-impl Theme {
-    /// Sync the theme with the system appearance
-    pub fn sync_system_appearance(cx: &mut AppContext) {
-        match cx.window_appearance() {
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => {
-                Self::change(ThemeMode::Dark, cx)
-            }
-            WindowAppearance::Light | WindowAppearance::VibrantLight => {
-                Self::change(ThemeMode::Light, cx)
-            }
-        }
-    }
-
-    pub fn change(mode: ThemeMode, cx: &mut AppContext) {
-        let colors = match mode {
-            ThemeMode::Light => ThemeColor::light(),
-            ThemeMode::Dark => ThemeColor::dark(),
-        };
-
-        let mut theme = Theme::from(colors);
-        theme.mode = mode;
-
-        cx.set_global(theme);
-        cx.refresh();
-    }
-
-    /// Returns the global theme reference
-    pub fn global(cx: &AppContext) -> &Theme {
-        cx.global::<Theme>()
-    }
-
-    /// Returns the global theme mutable reference
-    pub fn global_mut(cx: &mut AppContext) -> &mut Theme {
-        cx.global_mut::<Theme>()
     }
 }

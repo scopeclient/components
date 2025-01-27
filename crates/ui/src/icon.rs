@@ -1,7 +1,8 @@
-use crate::{theme::ActiveTheme, Sizable, Size};
+use crate::{ActiveTheme, Sizable, Size};
 use gpui::{
-    prelude::FluentBuilder as _, svg, AnyElement, Hsla, IntoElement, Render, RenderOnce,
-    SharedString, StyleRefinement, Styled, Svg, View, VisualContext, WindowContext,
+    prelude::FluentBuilder as _, svg, AnyElement, App, AppContext, Context, Entity, Hsla,
+    IntoElement, Radians, Render, RenderOnce, SharedString, StyleRefinement, Styled, Svg,
+    Transformation, Window,
 };
 
 #[derive(IntoElement, Clone)]
@@ -13,7 +14,10 @@ pub enum IconName {
     ArrowUp,
     Asterisk,
     Bell,
+    BookOpen,
+    Bot,
     Calendar,
+    ChartPie,
     Check,
     ChevronDown,
     ChevronLeft,
@@ -21,6 +25,7 @@ pub enum IconName {
     ChevronUp,
     ChevronsUpDown,
     CircleCheck,
+    CircleUser,
     CircleX,
     Close,
     Copy,
@@ -30,14 +35,18 @@ pub enum IconName {
     EllipsisVertical,
     Eye,
     EyeOff,
+    Frame,
+    GalleryVerticalEnd,
     GitHub,
     Globe,
     Heart,
     HeartOff,
     Inbox,
     Info,
+    LayoutDashboard,
     Loader,
     LoaderCircle,
+    Map,
     Maximize,
     Menu,
     Minimize,
@@ -47,92 +56,112 @@ pub enum IconName {
     PanelBottom,
     PanelBottomOpen,
     PanelLeft,
+    PanelLeftClose,
     PanelLeftOpen,
     PanelRight,
+    PanelRightClose,
     PanelRightOpen,
     Plus,
+    ResizeCorner,
     Search,
+    Settings,
+    Settings2,
     SortAscending,
     SortDescending,
+    SquareTerminal,
     Star,
     StarOff,
     Sun,
     ThumbsDown,
     ThumbsUp,
     TriangleAlert,
+    WindowClose,
     WindowMaximize,
     WindowMinimize,
     WindowRestore,
-    WindowClose,
 }
 
 impl IconName {
     pub fn path(self) -> SharedString {
         match self {
-            IconName::ALargeSmall => "icons/a-large-small.svg",
-            IconName::ArrowDown => "icons/arrow-down.svg",
-            IconName::ArrowLeft => "icons/arrow-left.svg",
-            IconName::ArrowRight => "icons/arrow-right.svg",
-            IconName::ArrowUp => "icons/arrow-up.svg",
-            IconName::Asterisk => "icons/asterisk.svg",
-            IconName::Bell => "icons/bell.svg",
-            IconName::Calendar => "icons/calendar.svg",
-            IconName::Check => "icons/check.svg",
-            IconName::ChevronDown => "icons/chevron-down.svg",
-            IconName::ChevronLeft => "icons/chevron-left.svg",
-            IconName::ChevronRight => "icons/chevron-right.svg",
-            IconName::ChevronUp => "icons/chevron-up.svg",
-            IconName::ChevronsUpDown => "icons/chevrons-up-down.svg",
-            IconName::CircleCheck => "icons/circle-check.svg",
-            IconName::CircleX => "icons/circle-x.svg",
-            IconName::Close => "icons/close.svg",
-            IconName::Copy => "icons/copy.svg",
-            IconName::Dash => "icons/dash.svg",
-            IconName::Delete => "icons/delete.svg",
-            IconName::Ellipsis => "icons/ellipsis.svg",
-            IconName::EllipsisVertical => "icons/ellipsis-vertical.svg",
-            IconName::Eye => "icons/eye.svg",
-            IconName::EyeOff => "icons/eye-off.svg",
-            IconName::GitHub => "icons/github.svg",
-            IconName::Globe => "icons/globe.svg",
-            IconName::Heart => "icons/heart.svg",
-            IconName::HeartOff => "icons/heart-off.svg",
-            IconName::Inbox => "icons/inbox.svg",
-            IconName::Info => "icons/info.svg",
-            IconName::Loader => "icons/loader.svg",
-            IconName::LoaderCircle => "icons/loader-circle.svg",
-            IconName::Maximize => "icons/maximize.svg",
-            IconName::Menu => "icons/menu.svg",
-            IconName::Minimize => "icons/minimize.svg",
-            IconName::Minus => "icons/minus.svg",
-            IconName::Moon => "icons/moon.svg",
-            IconName::Palette => "icons/palette.svg",
-            IconName::PanelBottom => "icons/panel-bottom.svg",
-            IconName::PanelBottomOpen => "icons/panel-bottom-open.svg",
-            IconName::PanelLeft => "icons/panel-left.svg",
-            IconName::PanelLeftOpen => "icons/panel-left-open.svg",
-            IconName::PanelRight => "icons/panel-right.svg",
-            IconName::PanelRightOpen => "icons/panel-right-open.svg",
-            IconName::Plus => "icons/plus.svg",
-            IconName::Search => "icons/search.svg",
-            IconName::SortAscending => "icons/sort-ascending.svg",
-            IconName::SortDescending => "icons/sort-descending.svg",
-            IconName::Star => "icons/star.svg",
-            IconName::StarOff => "icons/star-off.svg",
-            IconName::Sun => "icons/sun.svg",
-            IconName::ThumbsDown => "icons/thumbs-down.svg",
-            IconName::ThumbsUp => "icons/thumbs-up.svg",
-            IconName::TriangleAlert => "icons/triangle-alert.svg",
-            IconName::WindowMaximize => "icons/window-maximize.svg",
-            IconName::WindowMinimize => "icons/window-minimize.svg",
-            IconName::WindowRestore => "icons/window-restore.svg",
-            IconName::WindowClose => "icons/window-close.svg",
+            Self::ALargeSmall => "icons/a-large-small.svg",
+            Self::ArrowDown => "icons/arrow-down.svg",
+            Self::ArrowLeft => "icons/arrow-left.svg",
+            Self::ArrowRight => "icons/arrow-right.svg",
+            Self::ArrowUp => "icons/arrow-up.svg",
+            Self::Asterisk => "icons/asterisk.svg",
+            Self::Bell => "icons/bell.svg",
+            Self::BookOpen => "icons/book-open.svg",
+            Self::Bot => "icons/bot.svg",
+            Self::Calendar => "icons/calendar.svg",
+            Self::ChartPie => "icons/chart-pie.svg",
+            Self::Check => "icons/check.svg",
+            Self::ChevronDown => "icons/chevron-down.svg",
+            Self::ChevronLeft => "icons/chevron-left.svg",
+            Self::ChevronRight => "icons/chevron-right.svg",
+            Self::ChevronUp => "icons/chevron-up.svg",
+            Self::ChevronsUpDown => "icons/chevrons-up-down.svg",
+            Self::CircleCheck => "icons/circle-check.svg",
+            Self::CircleUser => "icons/circle-user.svg",
+            Self::CircleX => "icons/circle-x.svg",
+            Self::Close => "icons/close.svg",
+            Self::Copy => "icons/copy.svg",
+            Self::Dash => "icons/dash.svg",
+            Self::Delete => "icons/delete.svg",
+            Self::Ellipsis => "icons/ellipsis.svg",
+            Self::EllipsisVertical => "icons/ellipsis-vertical.svg",
+            Self::Eye => "icons/eye.svg",
+            Self::EyeOff => "icons/eye-off.svg",
+            Self::Frame => "icons/frame.svg",
+            Self::GalleryVerticalEnd => "icons/gallery-vertical-end.svg",
+            Self::GitHub => "icons/github.svg",
+            Self::Globe => "icons/globe.svg",
+            Self::Heart => "icons/heart.svg",
+            Self::HeartOff => "icons/heart-off.svg",
+            Self::Inbox => "icons/inbox.svg",
+            Self::Info => "icons/info.svg",
+            Self::LayoutDashboard => "icons/layout-dashboard.svg",
+            Self::Loader => "icons/loader.svg",
+            Self::LoaderCircle => "icons/loader-circle.svg",
+            Self::Map => "icons/map.svg",
+            Self::Maximize => "icons/maximize.svg",
+            Self::Menu => "icons/menu.svg",
+            Self::Minimize => "icons/minimize.svg",
+            Self::Minus => "icons/minus.svg",
+            Self::Moon => "icons/moon.svg",
+            Self::Palette => "icons/palette.svg",
+            Self::PanelBottom => "icons/panel-bottom.svg",
+            Self::PanelBottomOpen => "icons/panel-bottom-open.svg",
+            Self::PanelLeft => "icons/panel-left.svg",
+            Self::PanelLeftClose => "icons/panel-left-close.svg",
+            Self::PanelLeftOpen => "icons/panel-left-open.svg",
+            Self::PanelRight => "icons/panel-right.svg",
+            Self::PanelRightClose => "icons/panel-right-close.svg",
+            Self::PanelRightOpen => "icons/panel-right-open.svg",
+            Self::Plus => "icons/plus.svg",
+            Self::ResizeCorner => "icons/resize-corner.svg",
+            Self::Search => "icons/search.svg",
+            Self::Settings => "icons/settings.svg",
+            Self::Settings2 => "icons/settings-2.svg",
+            Self::SortAscending => "icons/sort-ascending.svg",
+            Self::SortDescending => "icons/sort-descending.svg",
+            Self::SquareTerminal => "icons/square-terminal.svg",
+            Self::Star => "icons/star.svg",
+            Self::StarOff => "icons/star-off.svg",
+            Self::Sun => "icons/sun.svg",
+            Self::ThumbsDown => "icons/thumbs-down.svg",
+            Self::ThumbsUp => "icons/thumbs-up.svg",
+            Self::TriangleAlert => "icons/triangle-alert.svg",
+            Self::WindowClose => "icons/window-close.svg",
+            Self::WindowMaximize => "icons/window-maximize.svg",
+            Self::WindowMinimize => "icons/window-minimize.svg",
+            Self::WindowRestore => "icons/window-restore.svg",
         }
         .into()
     }
 
-    /// Return the icon as a View<Icon>
-    pub fn view(self, cx: &mut WindowContext) -> View<Icon> {
+    /// Return the icon as a Entity<Icon>
+    pub fn view(self, cx: &mut App) -> Entity<Icon> {
         Icon::build(self).view(cx)
     }
 }
@@ -150,7 +179,7 @@ impl From<IconName> for AnyElement {
 }
 
 impl RenderOnce for IconName {
-    fn render(self, _cx: &mut WindowContext) -> impl IntoElement {
+    fn render(self, _: &mut Window, _cx: &mut App) -> impl IntoElement {
         Icon::build(self)
     }
 }
@@ -161,6 +190,7 @@ pub struct Icon {
     path: SharedString,
     text_color: Option<Hsla>,
     size: Option<Size>,
+    rotation: Option<Radians>,
 }
 
 impl Default for Icon {
@@ -170,6 +200,7 @@ impl Default for Icon {
             path: "".into(),
             text_color: None,
             size: None,
+            rotation: None,
         }
     }
 }
@@ -206,8 +237,8 @@ impl Icon {
     }
 
     /// Create a new view for the icon
-    pub fn view(self, cx: &mut WindowContext) -> View<Icon> {
-        cx.new_view(|_| self)
+    pub fn view(self, cx: &mut App) -> Entity<Icon> {
+        cx.new(|_| self)
     }
 
     pub fn transform(mut self, transformation: gpui::Transformation) -> Self {
@@ -217,6 +248,14 @@ impl Icon {
 
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Rotate the icon by the given angle
+    pub fn rotate(mut self, radians: impl Into<Radians>) -> Self {
+        self.base = self
+            .base
+            .with_transformation(Transformation::rotate(radians));
+        self
     }
 }
 
@@ -239,8 +278,8 @@ impl Sizable for Icon {
 }
 
 impl RenderOnce for Icon {
-    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
-        let text_color = self.text_color.unwrap_or_else(|| cx.text_style().color);
+    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let text_color = self.text_color.unwrap_or_else(|| window.text_style().color);
 
         self.base
             .text_color(text_color)
@@ -262,7 +301,7 @@ impl From<Icon> for AnyElement {
 }
 
 impl Render for Icon {
-    fn render(&mut self, cx: &mut gpui::ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let text_color = self.text_color.unwrap_or_else(|| cx.theme().foreground);
 
         svg()
@@ -276,5 +315,8 @@ impl Render for Icon {
                 Size::Large => this.size_6(),
             })
             .path(self.path.clone())
+            .when_some(self.rotation, |this, rotation| {
+                this.with_transformation(Transformation::rotate(rotation))
+            })
     }
 }

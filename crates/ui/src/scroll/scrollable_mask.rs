@@ -1,18 +1,10 @@
 use gpui::{
-    px, relative, AnyView, Bounds, ContentMask, Corners, Edges, Element, ElementId,
+    px, relative, App, Axis, Bounds, ContentMask, Corners, Edges, Element, ElementId, EntityId,
     GlobalElementId, Hitbox, Hsla, IntoElement, IsZero as _, LayoutId, PaintQuad, Pixels, Point,
-    Position, ScrollHandle, ScrollWheelEvent, Style, WindowContext,
+    Position, ScrollHandle, ScrollWheelEvent, Style, Window,
 };
 
-/// The scroll axis direction.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollableAxis {
-    /// Horizontal scroll.
-    Horizontal,
-    /// Vertical scroll.
-    Vertical,
-}
+use crate::AxisExt;
 
 /// Make a scrollable mask element to cover the parent view with the mouse wheel event listening.
 ///
@@ -20,21 +12,17 @@ pub enum ScrollableAxis {
 /// You can use this `scroll_handle` to control what you want to scroll.
 /// This is only can handle once axis scrolling.
 pub struct ScrollableMask {
-    view: AnyView,
-    axis: ScrollableAxis,
+    view_id: EntityId,
+    axis: Axis,
     scroll_handle: ScrollHandle,
     debug: Option<Hsla>,
 }
 
 impl ScrollableMask {
     /// Create a new scrollable mask element.
-    pub fn new(
-        view: impl Into<AnyView>,
-        axis: ScrollableAxis,
-        scroll_handle: &ScrollHandle,
-    ) -> Self {
+    pub fn new(view_id: EntityId, axis: Axis, scroll_handle: &ScrollHandle) -> Self {
         Self {
-            view: view.into(),
+            view_id,
             scroll_handle: scroll_handle.clone(),
             axis,
             debug: None,
@@ -68,7 +56,8 @@ impl Element for ScrollableMask {
     fn request_layout(
         &mut self,
         _: Option<&GlobalElementId>,
-        cx: &mut WindowContext,
+        window: &mut Window,
+        cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         // Set the layout style relative to the table view to get same size.
@@ -78,7 +67,7 @@ impl Element for ScrollableMask {
         style.size.width = relative(1.).into();
         style.size.height = relative(1.).into();
 
-        (cx.request_layout(style, None), ())
+        (window.request_layout(style, None, cx), ())
     }
 
     fn prepaint(
@@ -86,7 +75,8 @@ impl Element for ScrollableMask {
         _: Option<&GlobalElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
-        cx: &mut WindowContext,
+        window: &mut Window,
+        _: &mut App,
     ) -> Self::PrepaintState {
         // Move y to bounds height to cover the parent view.
         let cover_bounds = Bounds {
@@ -97,7 +87,7 @@ impl Element for ScrollableMask {
             size: bounds.size,
         };
 
-        cx.insert_hitbox(cover_bounds, false)
+        window.insert_hitbox(cover_bounds, false)
     }
 
     fn paint(
@@ -106,50 +96,59 @@ impl Element for ScrollableMask {
         _: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         hitbox: &mut Self::PrepaintState,
-        cx: &mut WindowContext,
+        window: &mut Window,
+        _: &mut App,
     ) {
-        let line_height = cx.line_height();
+        let line_height = window.line_height();
         let bounds = hitbox.bounds;
 
-        cx.with_content_mask(Some(ContentMask { bounds }), |cx| {
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
             if let Some(color) = self.debug {
-                cx.paint_quad(PaintQuad {
+                window.paint_quad(PaintQuad {
                     bounds,
                     border_widths: Edges::all(px(1.0)),
                     border_color: color,
-                    background: gpui::transparent_white(),
+                    background: gpui::transparent_white().into(),
                     corner_radii: Corners::all(px(0.)),
                 });
             }
 
-            cx.on_mouse_event({
-                let hitbox = hitbox.clone();
-                let mouse_position = cx.mouse_position();
+            window.on_mouse_event({
+                let view_id = self.view_id;
+                let is_horizontal = self.axis.is_horizontal();
                 let scroll_handle = self.scroll_handle.clone();
-                let old_offset = scroll_handle.offset();
-                let view_id = self.view.entity_id();
-                let is_horizontal = self.axis == ScrollableAxis::Horizontal;
+                let hitbox = hitbox.clone();
+                let mouse_position = window.mouse_position();
+                let last_offset = scroll_handle.offset();
 
-                move |event: &ScrollWheelEvent, phase, cx| {
-                    if bounds.contains(&mouse_position) && phase.bubble() && hitbox.is_hovered(cx) {
-                        let delta = event.delta.pixel_delta(line_height);
+                move |event: &ScrollWheelEvent, phase, window, cx| {
+                    if bounds.contains(&mouse_position)
+                        && phase.bubble()
+                        && hitbox.is_hovered(window)
+                    {
+                        let mut offset = scroll_handle.offset();
+                        let mut delta = event.delta.pixel_delta(line_height);
 
-                        if is_horizontal && !delta.x.is_zero() {
-                            // When is horizontal scroll, move the horizontal scroll handle to make scrolling.
-                            let mut offset = scroll_handle.offset();
+                        // Limit for only one way scrolling at same time.
+                        // When use MacBook touchpad we may get both x and y delta,
+                        // only allows the one that more to scroll.
+                        if !delta.x.is_zero() && !delta.y.is_zero() {
+                            if delta.x.abs() > delta.y.abs() {
+                                delta.y = px(0.);
+                            } else {
+                                delta.x = px(0.);
+                            }
+                        }
+
+                        if is_horizontal {
                             offset.x += delta.x;
-                            scroll_handle.set_offset(offset);
-                        }
-
-                        if !is_horizontal && !delta.y.is_zero() {
-                            // When is vertical scroll, move the vertical scroll handle to make scrolling.
-                            let mut offset = scroll_handle.offset();
+                        } else {
                             offset.y += delta.y;
-                            scroll_handle.set_offset(offset);
                         }
 
-                        if old_offset != scroll_handle.offset() {
-                            cx.notify(Some(view_id));
+                        if last_offset != offset {
+                            scroll_handle.set_offset(offset);
+                            cx.notify(view_id);
                             cx.stop_propagation();
                         }
                     }

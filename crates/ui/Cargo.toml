@@ -10,7 +10,6 @@ doctest = false
 
 [dependencies]
 gpui.workspace = true
-
 anyhow = "1"
 image = "0.25.1"
 itertools = "0.13.0"
@@ -21,7 +20,7 @@ resvg = { version = "0.44.0", default-features = false, features = [
   "system-fonts",
   "text",
 ] }
-rust-embed = "8.5.0"
+rust-embed.workspace = true
 rust-i18n = "3"
 serde = "1.0.203"
 serde_json = "1"
@@ -33,7 +32,7 @@ usvg = { version = "0.44.0", default-features = false, features = [
   "text",
 ] }
 uuid = "1.10"
-wry = "0.47.0"
+wry = "0.48.0"
 
 # Calendar
 chrono = "0.4.38"

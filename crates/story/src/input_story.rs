@@ -1,25 +1,25 @@
 use gpui::{
-    actions, div, px, AppContext, FocusHandle, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement as _, Render, SharedString, Styled, View, ViewContext, VisualContext,
-    WindowContext,
+    actions, div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement as _, Render, SharedString, Styled,
+    Window,
 };
+use regex::Regex;
 
 use crate::section;
 use ui::{
-    button::Button,
+    button::{Button, ButtonVariant, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{InputEvent, OtpInput, TextInput},
+    input::{InputEvent, NumberInput, NumberInputEvent, OtpInput, TextInput},
     prelude::FluentBuilder as _,
-    scroll::ScrollbarAxis,
-    v_flex, FocusableCycle, IconName, Sizable, StyledExt,
+    v_flex, FocusableCycle, IconName, Sizable,
 };
 
 actions!(input_story, [Tab, TabPrev]);
 
 const CONTEXT: &str = "InputStory";
 
-pub fn init(cx: &mut AppContext) {
+pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("shift-tab", TabPrev, Some(CONTEXT)),
         KeyBinding::new("tab", Tab, Some(CONTEXT)),
@@ -27,21 +27,26 @@ pub fn init(cx: &mut AppContext) {
 }
 
 pub struct InputStory {
-    input1: View<TextInput>,
-    input2: View<TextInput>,
-    mash_input: View<TextInput>,
-    disabled_input: View<TextInput>,
-    prefix_input1: View<TextInput>,
-    suffix_input1: View<TextInput>,
-    both_input1: View<TextInput>,
-    large_input: View<TextInput>,
-    small_input: View<TextInput>,
+    input1: Entity<TextInput>,
+    input2: Entity<TextInput>,
+    textarea: Entity<TextInput>,
+    number_input1_value: i64,
+    number_input1: Entity<NumberInput>,
+    number_input2: Entity<NumberInput>,
+    number_input2_value: u64,
+    mash_input: Entity<TextInput>,
+    disabled_input: Entity<TextInput>,
+    prefix_input1: Entity<TextInput>,
+    suffix_input1: Entity<TextInput>,
+    both_input1: Entity<TextInput>,
+    large_input: Entity<TextInput>,
+    small_input: Entity<TextInput>,
     otp_masked: bool,
-    otp_input: View<OtpInput>,
+    otp_input: Entity<OtpInput>,
     otp_value: Option<SharedString>,
-    otp_input_small: View<OtpInput>,
-    otp_input_large: View<OtpInput>,
-    opt_input_sized: View<OtpInput>,
+    otp_input_small: Entity<OtpInput>,
+    otp_input_large: Entity<OtpInput>,
+    opt_input_sized: Entity<OtpInput>,
 }
 
 impl super::Story for InputStory {
@@ -49,65 +54,119 @@ impl super::Story for InputStory {
         "Input"
     }
 
-    fn closeable() -> bool {
+    fn closable() -> bool {
         false
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
     }
 }
 
 impl InputStory {
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(Self::new)
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 
-    fn new(cx: &mut ViewContext<Self>) -> Self {
-        let input1 = cx.new_view(|cx| {
-            let mut input = TextInput::new(cx).cleanable();
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input1 = cx.new(|cx| {
+            let mut input = TextInput::new(window, cx).cleanable();
             input.set_text(
                 "Hello 世界，this is GPUI component, this is a long text.",
+                window,
                 cx,
             );
             input
         });
+        cx.subscribe_in(&input1, window, Self::on_input_event)
+            .detach();
 
-        cx.subscribe(&input1, Self::on_input_event).detach();
+        let input2 = cx.new(|cx| TextInput::new(window, cx).placeholder("Enter text here..."));
+        cx.subscribe_in(&input2, window, Self::on_input_event)
+            .detach();
 
-        let input2 = cx.new_view(|cx| TextInput::new(cx).placeholder("Enter text here..."));
+        let textarea = cx.new(|cx| {
+            let mut input = TextInput::new(window, cx)
+                .multi_line()
+                .rows(10)
+                .placeholder("Enter text here...");
+            input.set_text(
+                unindent::unindent(
+                    r#"Hello 世界，this is GPUI component.
 
-        cx.subscribe(&input2, Self::on_input_event).detach();
+                The GPUI Component is a collection of UI components for GPUI framework, including.
 
-        let mask_input = cx.new_view(|cx| {
-            let mut input = TextInput::new(cx).cleanable();
-            input.set_masked(true, cx);
-            input.set_text("this-is-password", cx);
+                Button, Input, Checkbox, Radio, Dropdown, Tab, and more...
+
+                Here is an application that is built by using GPUI Component.
+
+                > This application is still under development, not published yet.
+
+                ![image](https://github.com/user-attachments/assets/559a648d-19df-4b5a-b563-b78cc79c8894)
+
+                ![image](https://github.com/user-attachments/assets/5e06ad5d-7ea0-43db-8d13-86a240da4c8d)
+
+                ## Demo
+
+                If you want to see the demo, here is a some demo applications.
+                "#,
+                ),
+                window,
+                cx,
+            );
+            input
+        });
+        cx.subscribe_in(&textarea, window, Self::on_input_event)
+            .detach();
+
+        let number_input1_value = 1;
+        let number_input1 = cx.new(|cx| {
+            let input = NumberInput::new(window, cx).placeholder("Number Input", window, cx);
+            input.set_value(number_input1_value.to_string(), window, cx);
+            input
+        });
+        cx.subscribe_in(&number_input1, window, Self::on_number_input1_event)
+            .detach();
+
+        let number_input2 = cx.new(|cx| {
+            NumberInput::new(window, cx)
+                .placeholder("Unsized Integer Number Input", window, cx)
+                .pattern(Regex::new(r"^\d+$").unwrap(), window, cx)
+                .small()
+        });
+
+        cx.subscribe_in(&number_input2, window, Self::on_number_input2_event)
+            .detach();
+
+        let mask_input = cx.new(|cx| {
+            let mut input = TextInput::new(window, cx).cleanable();
+            input.set_masked(true, window, cx);
+            input.set_text("this-is-password", window, cx);
             input
         });
 
-        let prefix_input1 = cx.new_view(|cx| {
-            TextInput::new(cx)
-                .prefix(|_| div().child(IconName::Search).ml_3())
+        let prefix_input1 = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .prefix(|_, _| div().child(IconName::Search).ml_3())
                 .placeholder("Search some thing...")
                 .cleanable()
         });
-        let suffix_input1 = cx.new_view(|cx| {
-            TextInput::new(cx)
-                .suffix(|_| div().child(IconName::Info).mr_3())
+        let suffix_input1 = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .suffix(|_, _| div().child(IconName::Info).mr_3())
                 .placeholder("This input only support [a-zA-Z0-9] characters.")
                 .pattern(regex::Regex::new(r"^[a-zA-Z0-9]*$").unwrap())
                 .cleanable()
         });
-        let both_input1 = cx.new_view(|cx| {
-            TextInput::new(cx)
-                .prefix(|_| div().child(IconName::Search).ml_3())
-                .suffix(|_| div().child(IconName::Info).mr_3())
+        let both_input1 = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .prefix(|_, _| div().child(IconName::Search).ml_3())
+                .suffix(|_, _| div().child(IconName::Info).mr_3())
                 .cleanable()
                 .placeholder("This input have prefix and suffix.")
         });
 
-        let otp_input = cx.new_view(|cx| OtpInput::new(6, cx).masked(true));
+        let otp_input = cx.new(|cx| OtpInput::new(6, window, cx).masked(true));
         cx.subscribe(&otp_input, |this, _, ev: &InputEvent, cx| match ev {
             InputEvent::Change(text) => {
                 this.otp_value = Some(text.clone());
@@ -120,16 +179,25 @@ impl InputStory {
         Self {
             input1,
             input2,
+            textarea,
+            number_input1,
+            number_input1_value,
+            number_input2,
+            number_input2_value: 0,
             mash_input: mask_input,
-            disabled_input: cx.new_view(|cx| {
-                let mut input = TextInput::new(cx);
-                input.set_text("This is disabled input", cx);
-                input.set_disabled(true, cx);
+            disabled_input: cx.new(|cx| {
+                let mut input = TextInput::new(window, cx);
+                input.set_text("This is disabled input", window, cx);
+                input.set_disabled(true, window, cx);
                 input
             }),
-            large_input: cx.new_view(|cx| TextInput::new(cx).large().placeholder("Large input")),
-            small_input: cx.new_view(|cx| {
-                TextInput::new(cx)
+            large_input: cx.new(|cx| {
+                TextInput::new(window, cx)
+                    .large()
+                    .placeholder("Large input")
+            }),
+            small_input: cx.new(|cx| {
+                TextInput::new(window, cx)
                     .small()
                     .validate(|s| s.parse::<f32>().is_ok())
                     .placeholder("validate to limit float number.")
@@ -140,22 +208,22 @@ impl InputStory {
             otp_masked: true,
             otp_input,
             otp_value: None,
-            otp_input_small: cx.new_view(|cx| {
-                OtpInput::new(6, cx)
+            otp_input_small: cx.new(|cx| {
+                OtpInput::new(6, window, cx)
                     .default_value("123456")
                     .masked(true)
                     .small()
                     .groups(1)
             }),
-            otp_input_large: cx.new_view(|cx| {
-                OtpInput::new(6, cx)
+            otp_input_large: cx.new(|cx| {
+                OtpInput::new(6, window, cx)
                     .groups(3)
                     .large()
                     .default_value("012345")
                     .masked(true)
             }),
-            opt_input_sized: cx.new_view(|cx| {
-                OtpInput::new(4, cx)
+            opt_input_sized: cx.new(|cx| {
+                OtpInput::new(4, window, cx)
                     .groups(1)
                     .masked(true)
                     .default_value("654321")
@@ -164,19 +232,20 @@ impl InputStory {
         }
     }
 
-    fn tab(&mut self, _: &Tab, cx: &mut ViewContext<Self>) {
-        self.cycle_focus(true, cx);
+    fn tab(&mut self, _: &Tab, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle_focus(true, window, cx);
     }
 
-    fn tab_prev(&mut self, _: &TabPrev, cx: &mut ViewContext<Self>) {
-        self.cycle_focus(false, cx);
+    fn tab_prev(&mut self, _: &TabPrev, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle_focus(false, window, cx);
     }
 
     fn on_input_event(
         &mut self,
-        _: View<TextInput>,
+        _: &Entity<TextInput>,
         event: &InputEvent,
-        _cx: &mut ViewContext<Self>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
     ) {
         match event {
             InputEvent::Change(text) => println!("Change: {}", text),
@@ -186,21 +255,91 @@ impl InputStory {
         };
     }
 
-    fn toggle_opt_masked(&mut self, _: &bool, cx: &mut ViewContext<Self>) {
+    fn on_number_input1_event(
+        &mut self,
+        _: &Entity<NumberInput>,
+        event: &NumberInputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            NumberInputEvent::Input(input_event) => match input_event {
+                InputEvent::Change(text) => println!("Change: {}", text),
+                InputEvent::PressEnter => println!("PressEnter"),
+                InputEvent::Focus => println!("Focus"),
+                InputEvent::Blur => println!("Blur"),
+            },
+            NumberInputEvent::Step(step_action) => match step_action {
+                ui::input::StepAction::Decrement => {
+                    self.number_input1_value = self.number_input1_value - 1;
+                    self.number_input1.update(cx, |input, cx| {
+                        input.set_value(self.number_input1_value.to_string(), window, cx);
+                    });
+                }
+                ui::input::StepAction::Increment => {
+                    self.number_input1_value = self.number_input1_value + 1;
+                    self.number_input1.update(cx, |input, cx| {
+                        input.set_value(self.number_input1_value.to_string(), window, cx);
+                    });
+                }
+            },
+        }
+    }
+
+    fn on_number_input2_event(
+        &mut self,
+        _: &Entity<NumberInput>,
+        event: &NumberInputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            NumberInputEvent::Input(input_event) => match input_event {
+                InputEvent::Change(text) => println!("Change: {}", text),
+                InputEvent::PressEnter => println!("PressEnter"),
+                InputEvent::Focus => println!("Focus"),
+                InputEvent::Blur => println!("Blur"),
+            },
+            NumberInputEvent::Step(step_action) => match step_action {
+                ui::input::StepAction::Decrement => {
+                    if self.number_input2_value.le(&0) {
+                        return;
+                    }
+
+                    self.number_input2_value = self.number_input2_value - 1;
+                    self.number_input2.update(cx, |input, cx| {
+                        input.set_value(self.number_input2_value.to_string(), window, cx);
+                    });
+                }
+                ui::input::StepAction::Increment => {
+                    self.number_input2_value = self.number_input2_value + 1;
+                    self.number_input2.update(cx, |input, cx| {
+                        input.set_value(self.number_input2_value.to_string(), window, cx);
+                    });
+                }
+            },
+        }
+    }
+
+    fn toggle_opt_masked(&mut self, _: &bool, window: &mut Window, cx: &mut Context<Self>) {
         self.otp_masked = !self.otp_masked;
-        self.otp_input
-            .update(cx, |input, cx| input.set_masked(self.otp_masked, cx));
-        self.otp_input_small
-            .update(cx, |input, cx| input.set_masked(self.otp_masked, cx));
-        self.otp_input_large
-            .update(cx, |input, cx| input.set_masked(self.otp_masked, cx));
-        self.opt_input_sized
-            .update(cx, |input, cx| input.set_masked(self.otp_masked, cx));
+        self.otp_input.update(cx, |input, cx| {
+            input.set_masked(self.otp_masked, window, cx)
+        });
+        self.otp_input_small.update(cx, |input, cx| {
+            input.set_masked(self.otp_masked, window, cx)
+        });
+        self.otp_input_large.update(cx, |input, cx| {
+            input.set_masked(self.otp_masked, window, cx)
+        });
+        self.opt_input_sized.update(cx, |input, cx| {
+            input.set_masked(self.otp_masked, window, cx)
+        });
     }
 }
 
 impl FocusableCycle for InputStory {
-    fn cycle_focus_handles(&self, cx: &mut ViewContext<Self>) -> Vec<FocusHandle> {
+    fn cycle_focus_handles(&self, _: &mut Window, cx: &mut App) -> Vec<FocusHandle> {
         [
             self.input1.focus_handle(cx),
             self.input2.focus_handle(cx),
@@ -216,22 +355,20 @@ impl FocusableCycle for InputStory {
         .to_vec()
     }
 }
-impl gpui::FocusableView for InputStory {
-    fn focus_handle(&self, cx: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for InputStory {
+    fn focus_handle(&self, cx: &gpui::App) -> gpui::FocusHandle {
         self.input1.focus_handle(cx)
     }
 }
 
 impl Render for InputStory {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context(CONTEXT)
             .id("input-story")
-            .scrollable(cx.entity_id(), ScrollbarAxis::Vertical)
             .on_action(cx.listener(Self::tab))
             .on_action(cx.listener(Self::tab_prev))
             .size_full()
-            .p_4()
             .justify_start()
             .gap_3()
             .child(
@@ -241,8 +378,17 @@ impl Render for InputStory {
                     .child(
                         section("Normal Input", cx)
                             .child(self.input1.clone())
-                            .child(self.input2.clone()),
+                            .child(self.input2.clone())
+                            .child(
+                                v_flex()
+                                    .gap_y_4()
+                                    .w_full()
+                                    .child("Number Input")
+                                    .child(self.number_input1.clone())
+                                    .child(self.number_input2.clone()),
+                            ),
                     )
+                    .child(section("Textarea", cx).child(self.textarea.clone()))
                     .child(
                         section("Input State", cx)
                             .child(self.disabled_input.clone())
@@ -298,14 +444,16 @@ impl Render for InputStory {
                     .gap_3()
                     .child(
                         Button::new("btn-submit")
-                            .w_full()
-                            .style(ui::button::ButtonStyle::Primary)
+                            .flex_1()
+                            .with_variant(ButtonVariant::Primary)
                             .label("Submit")
-                            .on_click(cx.listener(|_, _, cx| cx.dispatch_action(Box::new(Tab)))),
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                window.dispatch_action(Box::new(Tab), cx)
+                            })),
                     )
                     .child(
                         Button::new("btn-cancel")
-                            .w_full()
+                            .flex_1()
                             .label("Cancel")
                             .into_element(),
                     ),

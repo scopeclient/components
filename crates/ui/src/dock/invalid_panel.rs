@@ -1,20 +1,20 @@
 use gpui::{
-    AppContext, EventEmitter, FocusHandle, FocusableView, ParentElement as _, Render, SharedString,
-    Styled as _, WindowContext,
+    App, EventEmitter, FocusHandle, Focusable, ParentElement as _, Render, SharedString,
+    Styled as _, Window,
 };
 
-use crate::theme::ActiveTheme as _;
+use crate::ActiveTheme as _;
 
-use super::{DockItemState, Panel, PanelEvent};
+use super::{Panel, PanelEvent, PanelState};
 
 pub(crate) struct InvalidPanel {
     name: SharedString,
     focus_handle: FocusHandle,
-    old_state: DockItemState,
+    old_state: PanelState,
 }
 
 impl InvalidPanel {
-    pub(crate) fn new(name: &str, state: DockItemState, cx: &mut WindowContext) -> Self {
+    pub(crate) fn new(name: &str, state: PanelState, _: &mut Window, cx: &mut App) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
             name: SharedString::from(name.to_owned()),
@@ -27,18 +27,22 @@ impl Panel for InvalidPanel {
         "InvalidPanel"
     }
 
-    fn dump(&self, _cx: &AppContext) -> super::DockItemState {
+    fn dump(&self, _cx: &App) -> super::PanelState {
         self.old_state.clone()
     }
 }
 impl EventEmitter<PanelEvent> for InvalidPanel {}
-impl FocusableView for InvalidPanel {
-    fn focus_handle(&self, _: &AppContext) -> FocusHandle {
+impl Focusable for InvalidPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 impl Render for InvalidPanel {
-    fn render(&mut self, cx: &mut gpui::ViewContext<Self>) -> impl gpui::IntoElement {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
         gpui::div()
             .size_full()
             .my_6()

@@ -1,11 +1,11 @@
 use gpui::{
-    px, rems, ParentElement, Render, Styled, View, ViewContext, VisualContext as _, WindowContext,
+    px, rems, App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
+    Render, Styled, Window,
 };
 use ui::{
-    button::{Button, ButtonStyle},
-    h_flex,
-    theme::ActiveTheme as _,
-    v_flex, Icon, IconName,
+    button::{Button, ButtonVariant, ButtonVariants},
+    dock::PanelControl,
+    h_flex, v_flex, ActiveTheme as _, Icon, IconName,
 };
 
 pub struct IconStory {
@@ -13,14 +13,14 @@ pub struct IconStory {
 }
 
 impl IconStory {
-    fn new(cx: &mut ViewContext<Self>) -> Self {
+    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
         }
     }
 
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(Self::new)
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 }
 
@@ -29,23 +29,23 @@ impl super::Story for IconStory {
         "Icon"
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
     }
 
-    fn zoomable() -> bool {
-        false
+    fn zoomable() -> Option<PanelControl> {
+        None
     }
 }
 
-impl gpui::FocusableView for IconStory {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for IconStory {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for IconStory {
-    fn render(&mut self, cx: &mut gpui::ViewContext<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex().gap_3().child(
             h_flex()
                 .gap_4()
@@ -63,7 +63,7 @@ impl Render for IconStory {
                                 .text_color(ui::gray_500())
                                 .size_6(),
                         )
-                        .style(ButtonStyle::Ghost),
+                        .with_variant(ButtonVariant::Ghost),
                 )
                 .child(
                     Button::new("like2")
@@ -72,7 +72,7 @@ impl Render for IconStory {
                                 .text_color(ui::red_500())
                                 .size_6(),
                         )
-                        .style(ButtonStyle::Ghost),
+                        .with_variant(ButtonVariant::Ghost),
                 )
                 .child(
                     Icon::new(IconName::Plus)

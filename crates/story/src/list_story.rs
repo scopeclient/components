@@ -1,38 +1,49 @@
 use core::time;
+use std::time::Duration;
 
 use fake::Fake;
 use gpui::{
-    actions, div, px, relative, AnyElement, AppContext, ElementId, FocusHandle, FocusableView,
-    InteractiveElement, IntoElement, ParentElement, Render, RenderOnce, Styled, Task, Timer, View,
-    ViewContext, VisualContext, WindowContext,
+    actions, div, px, App, AppContext, Context, ElementId, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, ParentElement, Render, RenderOnce, SharedString, Styled,
+    Subscription, Task, Timer, Window,
 };
 
 use ui::{
-    h_flex,
+    button::Button,
+    checkbox::Checkbox,
+    h_flex, hsl,
     label::Label,
-    list::{List, ListDelegate, ListItem},
-    theme::{hsl, ActiveTheme},
-    v_flex,
+    list::{List, ListDelegate, ListEvent, ListItem},
+    v_flex, ActiveTheme, Sizable,
 };
 
 actions!(list_story, [SelectedCompany]);
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Company {
-    name: String,
-    industry: String,
+    name: SharedString,
+    industry: SharedString,
     last_done: f64,
     prev_close: f64,
+
+    change_percent: f64,
+    change_percent_str: SharedString,
+    last_done_str: SharedString,
+    prev_close_str: SharedString,
     // description: String,
 }
 
 impl Company {
-    fn random_update(&mut self) {
-        self.last_done = self.prev_close * (1.0 + (-0.2..0.2).fake::<f64>());
+    fn prepare(mut self) -> Self {
+        self.change_percent = (self.last_done - self.prev_close) / self.prev_close;
+        self.change_percent_str = format!("{:.2}%", self.change_percent).into();
+        self.last_done_str = format!("{:.2}", self.last_done).into();
+        self.prev_close_str = format!("{:.2}", self.prev_close).into();
+        self
     }
 
-    fn change_percent(&self) -> f64 {
-        (self.last_done - self.prev_close) / self.prev_close
+    fn random_update(&mut self) {
+        self.last_done = self.prev_close * (1.0 + (-0.2..0.2).fake::<f64>());
     }
 }
 
@@ -56,14 +67,14 @@ impl CompanyListItem {
 }
 
 impl RenderOnce for CompanyListItem {
-    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let text_color = if self.selected {
             cx.theme().accent_foreground
         } else {
             cx.theme().foreground
         };
 
-        let trend_color = match self.company.change_percent() {
+        let trend_color = match self.company.change_percent {
             change if change > 0.0 => hsl(0.0, 79.0, 53.0),
             change if change < 0.0 => hsl(100.0, 79.0, 53.0),
             _ => cx.theme().foreground,
@@ -112,7 +123,7 @@ impl RenderOnce for CompanyListItem {
                                 div()
                                     .w(px(65.))
                                     .text_color(text_color)
-                                    .child(format!("{:.2}", self.company.last_done)),
+                                    .child(self.company.last_done_str.clone()),
                             )
                             .child(
                                 h_flex().w(px(65.)).justify_end().child(
@@ -122,7 +133,7 @@ impl RenderOnce for CompanyListItem {
                                         .text_size(px(12.))
                                         .px_1()
                                         .text_color(trend_color)
-                                        .child(format!("{:.2}%", self.company.change_percent())),
+                                        .child(self.company.change_percent_str.clone()),
                                 ),
                             ),
                     ),
@@ -133,22 +144,27 @@ impl RenderOnce for CompanyListItem {
 struct CompanyListDelegate {
     companies: Vec<Company>,
     matched_companies: Vec<Company>,
-    selected_index: usize,
+    selected_index: Option<usize>,
     confirmed_index: Option<usize>,
+    query: String,
+    loading: bool,
+    is_eof: bool,
 }
 
 impl ListDelegate for CompanyListDelegate {
     type Item = CompanyListItem;
 
-    fn items_count(&self, _: &AppContext) -> usize {
+    fn items_count(&self, _: &App) -> usize {
         self.matched_companies.len()
     }
 
-    fn confirmed_index(&self, _: &AppContext) -> Option<usize> {
-        self.confirmed_index
-    }
-
-    fn perform_search(&mut self, query: &str, _: &mut ViewContext<List<Self>>) -> Task<()> {
+    fn perform_search(
+        &mut self,
+        query: &str,
+        _: &mut Window,
+        _: &mut Context<List<Self>>,
+    ) -> Task<()> {
+        self.query = query.to_string();
         self.matched_companies = self
             .companies
             .iter()
@@ -156,76 +172,83 @@ impl ListDelegate for CompanyListDelegate {
             .cloned()
             .collect();
 
-        Task::Ready(Some(()))
+        Task::ready(())
     }
 
-    fn confirm(&mut self, ix: Option<usize>, cx: &mut ViewContext<List<Self>>) {
-        self.confirmed_index = ix;
-        if let Some(_) = ix {
-            cx.dispatch_action(Box::new(SelectedCompany));
-        }
+    fn confirm(&mut self, ix: usize, window: &mut Window, cx: &mut Context<List<Self>>) {
+        self.confirmed_index = Some(ix);
+        window.dispatch_action(Box::new(SelectedCompany), cx);
     }
 
-    fn render_initial(&self, cx: &mut ViewContext<List<Self>>) -> Option<AnyElement> {
-        let histories = ["BABA", "BIDU", "GOOGL", "LB", "LP", "LBW"];
-
-        let input_history = histories
-            .into_iter()
-            .map(|name| {
-                div()
-                    .rounded_xl()
-                    .min_w(px(30.))
-                    .border_1()
-                    .rounded_md()
-                    .border_color(cx.theme().muted_foreground.opacity(0.3))
-                    .line_height(relative(1.))
-                    .p_1()
-                    .child(div().whitespace_nowrap().child(name).text_xs())
-            })
-            .collect::<Vec<_>>();
-
-        let element = v_flex()
-            .p_4()
-            .child(
-                v_flex().gap_y_2().child("History").child(
-                    h_flex()
-                        .gap_x_4()
-                        .gap_y_2()
-                        .flex_wrap()
-                        .children(input_history),
-                ),
-            )
-            .into_any_element();
-        Some(element)
+    fn set_selected_index(
+        &mut self,
+        ix: Option<usize>,
+        _: &mut Window,
+        cx: &mut Context<List<Self>>,
+    ) {
+        self.selected_index = ix;
+        cx.notify();
     }
 
-    fn set_selected_index(&mut self, ix: Option<usize>, cx: &mut ViewContext<List<Self>>) {
-        if let Some(ix) = ix {
-            self.selected_index = ix;
-            cx.notify();
-        }
-    }
-
-    fn render_item(&self, ix: usize, _cx: &mut ViewContext<List<Self>>) -> Option<Self::Item> {
-        let selected = ix == self.selected_index || Some(ix) == self.confirmed_index;
+    fn render_item(
+        &self,
+        ix: usize,
+        _: &mut Window,
+        _: &mut Context<List<Self>>,
+    ) -> Option<Self::Item> {
+        let selected = Some(ix) == self.selected_index || Some(ix) == self.confirmed_index;
         if let Some(company) = self.matched_companies.get(ix) {
             return Some(CompanyListItem::new(ix, company.clone(), ix, selected));
         }
 
         None
     }
+
+    fn loading(&self, _: &App) -> bool {
+        self.loading
+    }
+
+    fn can_load_more(&self, _: &App) -> bool {
+        return !self.loading && !self.is_eof;
+    }
+
+    fn load_more_threshold(&self) -> usize {
+        150
+    }
+
+    fn load_more(&mut self, window: &mut Window, cx: &mut Context<List<Self>>) {
+        cx.spawn_in(window, |view, mut window| async move {
+            // Simulate network request, delay 1s to load data.
+            Timer::after(Duration::from_secs(1)).await;
+
+            _ = view.update_in(&mut window, move |view, window, cx| {
+                let query = view.delegate().query.clone();
+                view.delegate_mut()
+                    .companies
+                    .extend((0..200).map(|_| random_company()));
+                _ = view.delegate_mut().perform_search(&query, window, cx);
+                view.delegate_mut().is_eof = view.delegate().companies.len() >= 6000;
+            });
+        })
+        .detach();
+    }
 }
 
 impl CompanyListDelegate {
     fn selected_company(&self) -> Option<Company> {
-        self.companies.get(self.selected_index).cloned()
+        let Some(ix) = self.selected_index else {
+            return None;
+        };
+
+        self.companies.get(ix).cloned()
     }
 }
 
 pub struct ListStory {
     focus_handle: FocusHandle,
-    company_list: View<List<CompanyListDelegate>>,
+    company_list: Entity<List<CompanyListDelegate>>,
     selected_company: Option<Company>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl super::Story for ListStory {
@@ -237,32 +260,49 @@ impl super::Story for ListStory {
         "A list displays a series of items."
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
     }
 }
 
 impl ListStory {
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(Self::new)
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 
-    fn new(cx: &mut ViewContext<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let companies = (0..1_000)
             .map(|_| random_company())
             .collect::<Vec<Company>>();
 
-        let company_list = cx.new_view(|cx| {
-            List::new(
-                CompanyListDelegate {
-                    matched_companies: companies.clone(),
-                    companies,
-                    selected_index: 0,
-                    confirmed_index: None,
-                },
-                cx,
-            )
-        });
+        let delegate = CompanyListDelegate {
+            matched_companies: companies.clone(),
+            companies,
+            selected_index: None,
+            confirmed_index: None,
+            query: "".to_string(),
+            loading: false,
+            is_eof: false,
+        };
+
+        let company_list = cx.new(|cx| List::new(delegate, window, cx));
+        // company_list.update(cx, |list, cx| {
+        //     list.set_selected_index(Some(3), cx);
+        // });
+        let _subscriptions =
+            vec![
+                cx.subscribe(&company_list, |_, _, ev: &ListEvent, _| match ev {
+                    ListEvent::Select(ix) => {
+                        println!("List Selected: {:?}", ix);
+                    }
+                    ListEvent::Confirm(ix) => {
+                        println!("List Confirmed: {:?}", ix);
+                    }
+                    ListEvent::Cancel => {
+                        println!("List Cancelled");
+                    }
+                }),
+            ];
 
         // Spawn a background to random refresh the list
         cx.spawn(move |this, mut cx| async move {
@@ -289,10 +329,11 @@ impl ListStory {
             focus_handle: cx.focus_handle(),
             company_list,
             selected_company: None,
+            _subscriptions,
         }
     }
 
-    fn selected_company(&mut self, _: &SelectedCompany, cx: &mut ViewContext<Self>) {
+    fn selected_company(&mut self, _: &SelectedCompany, _: &mut Window, cx: &mut Context<Self>) {
         let picker = self.company_list.read(cx);
         if let Some(company) = picker.delegate().selected_company() {
             self.selected_company = Some(company);
@@ -303,30 +344,92 @@ impl ListStory {
 fn random_company() -> Company {
     let last_done = (0.0..999.0).fake::<f64>();
     let prev_close = last_done * (-0.1..0.1).fake::<f64>();
+
     Company {
-        name: fake::faker::company::en::CompanyName().fake(),
-        industry: fake::faker::company::en::Industry().fake(),
+        name: fake::faker::company::en::CompanyName()
+            .fake::<String>()
+            .into(),
+        industry: fake::faker::company::en::Industry().fake::<String>().into(),
         last_done,
         prev_close,
+        ..Default::default()
     }
+    .prepare()
 }
 
-impl FocusableView for ListStory {
-    fn focus_handle(&self, _cx: &gpui::AppContext) -> FocusHandle {
+impl Focusable for ListStory {
+    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ListStory {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        div()
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::selected_company))
             .size_full()
             .gap_4()
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded_md()
-            .child(self.company_list.clone())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        Button::new("scroll-top")
+                            .child("Scroll to Top")
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.company_list.update(cx, |list, cx| {
+                                    list.scroll_to_item(0, window, cx);
+                                })
+                            })),
+                    )
+                    .child(
+                        Button::new("scroll-bottom")
+                            .child("Scroll to Bottom")
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.company_list.update(cx, |list, cx| {
+                                    list.scroll_to_item(
+                                        list.delegate().items_count(cx) - 1,
+                                        window,
+                                        cx,
+                                    );
+                                })
+                            })),
+                    )
+                    .child(
+                        Button::new("scroll-to-selected")
+                            .child("Scroll to Selected")
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.company_list.update(cx, |list, cx| {
+                                    if let Some(selected) = list.selected_index() {
+                                        list.scroll_to_item(selected, window, cx);
+                                    }
+                                })
+                            })),
+                    )
+                    .child(
+                        Checkbox::new("loading")
+                            .label("Loading")
+                            .checked(self.company_list.read(cx).delegate().loading)
+                            .on_click(cx.listener(|this, check: &bool, _, cx| {
+                                this.company_list.update(cx, |this, cx| {
+                                    this.delegate_mut().loading = *check;
+                                    cx.notify();
+                                })
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .w_full()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .rounded_md()
+                    .child(self.company_list.clone()),
+            )
     }
 }

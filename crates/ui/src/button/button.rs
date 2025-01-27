@@ -1,16 +1,14 @@
 use crate::{
-    h_flex,
-    indicator::Indicator,
-    theme::{ActiveTheme, Colorize as _},
-    tooltip::Tooltip,
-    Disableable, Icon, Selectable, Sizable, Size,
+    h_flex, indicator::Indicator, tooltip::Tooltip, ActiveTheme, Colorize as _, Disableable, Icon,
+    Selectable, Sizable, Size,
 };
 use gpui::{
-    div, prelude::FluentBuilder as _, px, relative, AnyElement, ClickEvent, Corners, Div, Edges,
-    ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
-    RenderOnce, SharedString, StatefulInteractiveElement as _, Styled, WindowContext,
+    div, prelude::FluentBuilder as _, px, relative, AnyElement, App, ClickEvent, Corners, Div,
+    Edges, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
+    RenderOnce, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 
+#[derive(Clone, Copy)]
 pub enum ButtonRounded {
     None,
     Small,
@@ -26,7 +24,7 @@ impl From<Pixels> for ButtonRounded {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ButtonCustomStyle {
+pub struct ButtonCustomVariant {
     color: Hsla,
     foreground: Hsla,
     border: Hsla,
@@ -35,47 +33,47 @@ pub struct ButtonCustomStyle {
     active: Hsla,
 }
 
-pub trait ButtonStyled: Sized {
-    fn with_style(self, style: ButtonStyle) -> Self;
+pub trait ButtonVariants: Sized {
+    fn with_variant(self, variant: ButtonVariant) -> Self;
 
     /// With the primary style for the Button.
     fn primary(self) -> Self {
-        self.with_style(ButtonStyle::Primary)
+        self.with_variant(ButtonVariant::Primary)
     }
 
     /// With the danger style for the Button.
     fn danger(self) -> Self {
-        self.with_style(ButtonStyle::Danger)
+        self.with_variant(ButtonVariant::Danger)
     }
 
     /// With the outline style for the Button.
     fn outline(self) -> Self {
-        self.with_style(ButtonStyle::Outline)
+        self.with_variant(ButtonVariant::Outline)
     }
 
     /// With the ghost style for the Button.
     fn ghost(self) -> Self {
-        self.with_style(ButtonStyle::Ghost)
+        self.with_variant(ButtonVariant::Ghost)
     }
 
     /// With the link style for the Button.
     fn link(self) -> Self {
-        self.with_style(ButtonStyle::Link)
+        self.with_variant(ButtonVariant::Link)
     }
 
     /// With the text style for the Button, it will no padding look like a normal text.
     fn text(self) -> Self {
-        self.with_style(ButtonStyle::Text)
+        self.with_variant(ButtonVariant::Text)
     }
 
     /// With the custom style for the Button.
-    fn custom(self, style: ButtonCustomStyle) -> Self {
-        self.with_style(ButtonStyle::Custom(style))
+    fn custom(self, style: ButtonCustomVariant) -> Self {
+        self.with_variant(ButtonVariant::Custom(style))
     }
 }
 
-impl ButtonCustomStyle {
-    pub fn new(cx: &WindowContext) -> Self {
+impl ButtonCustomVariant {
+    pub fn new(cx: &App) -> Self {
         Self {
             color: cx.theme().secondary,
             foreground: cx.theme().secondary_foreground,
@@ -117,8 +115,9 @@ impl ButtonCustomStyle {
     }
 }
 
+/// The veriant of the Button.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ButtonStyle {
+pub enum ButtonVariant {
     Primary,
     Secondary,
     Danger,
@@ -126,10 +125,16 @@ pub enum ButtonStyle {
     Ghost,
     Link,
     Text,
-    Custom(ButtonCustomStyle),
+    Custom(ButtonCustomVariant),
 }
 
-impl ButtonStyle {
+impl Default for ButtonVariant {
+    fn default() -> Self {
+        Self::Secondary
+    }
+}
+
+impl ButtonVariant {
     fn is_link(&self) -> bool {
         matches!(self, Self::Link)
     }
@@ -153,14 +158,14 @@ pub struct Button {
     children: Vec<AnyElement>,
     disabled: bool,
     pub(crate) selected: bool,
-    style: ButtonStyle,
+    variant: ButtonVariant,
     rounded: ButtonRounded,
     border_corners: Corners<bool>,
     border_edges: Edges<bool>,
     size: Size,
     compact: bool,
     tooltip: Option<SharedString>,
-    on_click: Option<Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>>,
+    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
     pub(crate) stop_propagation: bool,
     loading: bool,
     loading_icon: Option<Icon>,
@@ -181,7 +186,7 @@ impl Button {
             label: None,
             disabled: false,
             selected: false,
-            style: ButtonStyle::Secondary,
+            variant: ButtonVariant::default(),
             rounded: ButtonRounded::Medium,
             border_corners: Corners::all(true),
             border_edges: Edges::all(true),
@@ -232,12 +237,6 @@ impl Button {
         self
     }
 
-    /// Set the ButtonStyle
-    pub fn style(mut self, style: ButtonStyle) -> Self {
-        self.style = style;
-        self
-    }
-
     /// Set true to show the loading indicator.
     pub fn loading(mut self, loading: bool) -> Self {
         self.loading = loading;
@@ -250,7 +249,10 @@ impl Button {
         self
     }
 
-    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut WindowContext) + 'static) -> Self {
+    pub fn on_click(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -291,9 +293,9 @@ impl Sizable for Button {
     }
 }
 
-impl ButtonStyled for Button {
-    fn with_style(mut self, style: ButtonStyle) -> Self {
-        self.style = style;
+impl ButtonVariants for Button {
+    fn with_variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
         self
     }
 }
@@ -317,8 +319,8 @@ impl InteractiveElement for Button {
 }
 
 impl RenderOnce for Button {
-    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
-        let style: ButtonStyle = self.style;
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let style: ButtonVariant = self.variant;
         let normal_style = style.normal(cx);
         let icon_size = match self.size {
             Size::Size(v) => Size::Size(v * 0.75),
@@ -406,14 +408,14 @@ impl RenderOnce for Button {
                 self.on_click.filter(|_| !self.disabled && !self.loading),
                 |this, on_click| {
                     let stop_propagation = self.stop_propagation;
-                    this.on_mouse_down(MouseButton::Left, move |_, cx| {
-                        cx.prevent_default();
+                    this.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        window.prevent_default();
                         if stop_propagation {
                             cx.stop_propagation();
                         }
                     })
-                    .on_click(move |event, cx| {
-                        (on_click)(event, cx);
+                    .on_click(move |event, window, cx| {
+                        (on_click)(event, window, cx);
                     })
                 },
             )
@@ -454,12 +456,12 @@ impl RenderOnce for Button {
             })
             .when(self.loading, |this| this.bg(normal_style.bg.opacity(0.8)))
             .when_some(self.tooltip.clone(), |this, tooltip| {
-                this.tooltip(move |cx| Tooltip::new(tooltip.clone(), cx))
+                this.tooltip(move |window, cx| Tooltip::new(tooltip.clone(), window, cx))
             })
     }
 }
 
-struct ButtonStyles {
+struct ButtonVariantStyle {
     bg: Hsla,
     border: Hsla,
     fg: Hsla,
@@ -467,66 +469,69 @@ struct ButtonStyles {
     shadow: bool,
 }
 
-impl ButtonStyle {
-    fn bg_color(&self, cx: &WindowContext) -> Hsla {
+impl ButtonVariant {
+    fn bg_color(&self, cx: &mut App) -> Hsla {
         match self {
-            ButtonStyle::Primary => cx.theme().primary,
-            ButtonStyle::Secondary => cx.theme().secondary,
-            ButtonStyle::Danger => cx.theme().destructive,
-            ButtonStyle::Outline | ButtonStyle::Ghost | ButtonStyle::Link | ButtonStyle::Text => {
-                cx.theme().transparent
-            }
-            ButtonStyle::Custom(colors) => colors.color,
+            ButtonVariant::Primary => cx.theme().primary,
+            ButtonVariant::Secondary => cx.theme().secondary,
+            ButtonVariant::Danger => cx.theme().danger,
+            ButtonVariant::Outline
+            | ButtonVariant::Ghost
+            | ButtonVariant::Link
+            | ButtonVariant::Text => cx.theme().transparent,
+            ButtonVariant::Custom(colors) => colors.color,
         }
     }
 
-    fn text_color(&self, cx: &WindowContext) -> Hsla {
+    fn text_color(&self, cx: &mut App) -> Hsla {
         match self {
-            ButtonStyle::Primary => cx.theme().primary_foreground,
-            ButtonStyle::Secondary | ButtonStyle::Outline | ButtonStyle::Ghost => {
+            ButtonVariant::Primary => cx.theme().primary_foreground,
+            ButtonVariant::Secondary | ButtonVariant::Outline | ButtonVariant::Ghost => {
                 cx.theme().secondary_foreground
             }
-            ButtonStyle::Danger => cx.theme().destructive_foreground,
-            ButtonStyle::Link => cx.theme().link,
-            ButtonStyle::Text => cx.theme().foreground,
-            ButtonStyle::Custom(colors) => colors.foreground,
+            ButtonVariant::Danger => cx.theme().danger_foreground,
+            ButtonVariant::Link => cx.theme().link,
+            ButtonVariant::Text => cx.theme().foreground,
+            ButtonVariant::Custom(colors) => colors.foreground,
         }
     }
 
-    fn border_color(&self, cx: &WindowContext) -> Hsla {
+    fn border_color(&self, cx: &mut App) -> Hsla {
         match self {
-            ButtonStyle::Primary => cx.theme().primary,
-            ButtonStyle::Secondary => cx.theme().border,
-            ButtonStyle::Danger => cx.theme().destructive,
-            ButtonStyle::Outline => cx.theme().border,
-            ButtonStyle::Ghost | ButtonStyle::Link | ButtonStyle::Text => cx.theme().transparent,
-            ButtonStyle::Custom(colors) => colors.border,
+            ButtonVariant::Primary => cx.theme().primary,
+            ButtonVariant::Secondary => cx.theme().border,
+            ButtonVariant::Danger => cx.theme().danger,
+            ButtonVariant::Outline => cx.theme().border,
+            ButtonVariant::Ghost | ButtonVariant::Link | ButtonVariant::Text => {
+                cx.theme().transparent
+            }
+            ButtonVariant::Custom(colors) => colors.border,
         }
     }
 
-    fn underline(&self, _: &WindowContext) -> bool {
+    fn underline(&self, _: &App) -> bool {
         match self {
-            ButtonStyle::Link => true,
+            ButtonVariant::Link => true,
             _ => false,
         }
     }
 
-    fn shadow(&self, _: &WindowContext) -> bool {
+    fn shadow(&self, _: &App) -> bool {
         match self {
-            ButtonStyle::Primary | ButtonStyle::Secondary | ButtonStyle::Danger => true,
-            ButtonStyle::Custom(c) => c.shadow,
+            ButtonVariant::Primary | ButtonVariant::Secondary | ButtonVariant::Danger => true,
+            ButtonVariant::Custom(c) => c.shadow,
             _ => false,
         }
     }
 
-    fn normal(&self, cx: &WindowContext) -> ButtonStyles {
+    fn normal(&self, cx: &mut App) -> ButtonVariantStyle {
         let bg = self.bg_color(cx);
         let border = self.border_color(cx);
         let fg = self.text_color(cx);
         let underline = self.underline(cx);
         let shadow = self.shadow(cx);
 
-        ButtonStyles {
+        ButtonVariantStyle {
             bg,
             border,
             fg,
@@ -535,31 +540,31 @@ impl ButtonStyle {
         }
     }
 
-    fn hovered(&self, cx: &WindowContext) -> ButtonStyles {
+    fn hovered(&self, cx: &mut App) -> ButtonVariantStyle {
         let bg = match self {
-            ButtonStyle::Primary => cx.theme().primary_hover,
-            ButtonStyle::Secondary | ButtonStyle::Outline => cx.theme().secondary_hover,
-            ButtonStyle::Danger => cx.theme().destructive_hover,
-            ButtonStyle::Ghost => {
+            ButtonVariant::Primary => cx.theme().primary_hover,
+            ButtonVariant::Secondary | ButtonVariant::Outline => cx.theme().secondary_hover,
+            ButtonVariant::Danger => cx.theme().danger_hover,
+            ButtonVariant::Ghost => {
                 if cx.theme().mode.is_dark() {
                     cx.theme().secondary.lighten(0.1).opacity(0.8)
                 } else {
                     cx.theme().secondary.darken(0.1).opacity(0.8)
                 }
             }
-            ButtonStyle::Link => cx.theme().transparent,
-            ButtonStyle::Text => cx.theme().transparent,
-            ButtonStyle::Custom(colors) => colors.hover,
+            ButtonVariant::Link => cx.theme().transparent,
+            ButtonVariant::Text => cx.theme().transparent,
+            ButtonVariant::Custom(colors) => colors.hover,
         };
         let border = self.border_color(cx);
         let fg = match self {
-            ButtonStyle::Link => cx.theme().link_hover,
+            ButtonVariant::Link => cx.theme().link_hover,
             _ => self.text_color(cx),
         };
         let underline = self.underline(cx);
         let shadow = self.shadow(cx);
 
-        ButtonStyles {
+        ButtonVariantStyle {
             bg,
             border,
             fg,
@@ -568,27 +573,32 @@ impl ButtonStyle {
         }
     }
 
-    fn active(&self, cx: &WindowContext) -> ButtonStyles {
+    fn active(&self, cx: &mut App) -> ButtonVariantStyle {
         let bg = match self {
-            ButtonStyle::Primary => cx.theme().primary_active,
-            ButtonStyle::Secondary | ButtonStyle::Outline | ButtonStyle::Ghost => {
-                cx.theme().secondary_active
+            ButtonVariant::Primary => cx.theme().primary_active,
+            ButtonVariant::Secondary | ButtonVariant::Outline => cx.theme().secondary_active,
+            ButtonVariant::Ghost => {
+                if cx.theme().mode.is_dark() {
+                    cx.theme().secondary.lighten(0.2).opacity(0.8)
+                } else {
+                    cx.theme().secondary.darken(0.2).opacity(0.8)
+                }
             }
-            ButtonStyle::Danger => cx.theme().destructive_active,
-            ButtonStyle::Link => cx.theme().transparent,
-            ButtonStyle::Text => cx.theme().transparent,
-            ButtonStyle::Custom(colors) => colors.active,
+            ButtonVariant::Danger => cx.theme().danger_active,
+            ButtonVariant::Link => cx.theme().transparent,
+            ButtonVariant::Text => cx.theme().transparent,
+            ButtonVariant::Custom(colors) => colors.active,
         };
         let border = self.border_color(cx);
         let fg = match self {
-            ButtonStyle::Link => cx.theme().link_active,
-            ButtonStyle::Text => cx.theme().foreground.opacity(0.7),
+            ButtonVariant::Link => cx.theme().link_active,
+            ButtonVariant::Text => cx.theme().foreground.opacity(0.7),
             _ => self.text_color(cx),
         };
         let underline = self.underline(cx);
         let shadow = self.shadow(cx);
 
-        ButtonStyles {
+        ButtonVariantStyle {
             bg,
             border,
             fg,
@@ -597,27 +607,32 @@ impl ButtonStyle {
         }
     }
 
-    fn selected(&self, cx: &WindowContext) -> ButtonStyles {
+    fn selected(&self, cx: &mut App) -> ButtonVariantStyle {
         let bg = match self {
-            ButtonStyle::Primary => cx.theme().primary_active,
-            ButtonStyle::Secondary | ButtonStyle::Outline | ButtonStyle::Ghost => {
-                cx.theme().secondary_active
+            ButtonVariant::Primary => cx.theme().primary_active,
+            ButtonVariant::Secondary | ButtonVariant::Outline => cx.theme().secondary_active,
+            ButtonVariant::Ghost => {
+                if cx.theme().mode.is_dark() {
+                    cx.theme().secondary.lighten(0.2).opacity(0.8)
+                } else {
+                    cx.theme().secondary.darken(0.2).opacity(0.8)
+                }
             }
-            ButtonStyle::Danger => cx.theme().destructive_active,
-            ButtonStyle::Link => cx.theme().transparent,
-            ButtonStyle::Text => cx.theme().transparent,
-            ButtonStyle::Custom(colors) => colors.active,
+            ButtonVariant::Danger => cx.theme().danger_active,
+            ButtonVariant::Link => cx.theme().transparent,
+            ButtonVariant::Text => cx.theme().transparent,
+            ButtonVariant::Custom(colors) => colors.active,
         };
         let border = self.border_color(cx);
         let fg = match self {
-            ButtonStyle::Link => cx.theme().link_active,
-            ButtonStyle::Text => cx.theme().foreground.opacity(0.7),
+            ButtonVariant::Link => cx.theme().link_active,
+            ButtonVariant::Text => cx.theme().foreground.opacity(0.7),
             _ => self.text_color(cx),
         };
         let underline = self.underline(cx);
         let shadow = self.shadow(cx);
 
-        ButtonStyles {
+        ButtonVariantStyle {
             bg,
             border,
             fg,
@@ -626,32 +641,33 @@ impl ButtonStyle {
         }
     }
 
-    fn disabled(&self, cx: &WindowContext) -> ButtonStyles {
+    fn disabled(&self, cx: &mut App) -> ButtonVariantStyle {
         let bg = match self {
-            ButtonStyle::Link | ButtonStyle::Ghost | ButtonStyle::Outline | ButtonStyle::Text => {
-                cx.theme().transparent
-            }
-            ButtonStyle::Primary => cx.theme().primary.opacity(0.15),
-            ButtonStyle::Danger => cx.theme().destructive.opacity(0.15),
-            ButtonStyle::Secondary => cx.theme().secondary.opacity(1.5),
-            ButtonStyle::Custom(style) => style.color.opacity(0.15),
+            ButtonVariant::Link
+            | ButtonVariant::Ghost
+            | ButtonVariant::Outline
+            | ButtonVariant::Text => cx.theme().transparent,
+            ButtonVariant::Primary => cx.theme().primary.opacity(0.15),
+            ButtonVariant::Danger => cx.theme().danger.opacity(0.15),
+            ButtonVariant::Secondary => cx.theme().secondary.opacity(1.5),
+            ButtonVariant::Custom(style) => style.color.opacity(0.15),
         };
         let fg = match self {
-            ButtonStyle::Link | ButtonStyle::Text | ButtonStyle::Ghost => {
+            ButtonVariant::Link | ButtonVariant::Text | ButtonVariant::Ghost => {
                 cx.theme().link.grayscale()
             }
             _ => cx.theme().secondary_foreground.opacity(0.5).grayscale(),
         };
 
         let border = match self {
-            ButtonStyle::Outline => cx.theme().border.opacity(0.5),
+            ButtonVariant::Outline => cx.theme().border.opacity(0.5),
             _ => bg,
         };
 
         let underline = self.underline(cx);
         let shadow = false;
 
-        ButtonStyles {
+        ButtonVariantStyle {
             bg,
             border,
             fg,

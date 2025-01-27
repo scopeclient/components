@@ -1,25 +1,29 @@
 use gpui::{
-    div, px, IntoElement, ParentElement, Render, Styled, View, ViewContext, VisualContext,
-    WindowContext,
+    div, hsla, px, App, AppContext, Context, Entity, Focusable, Hsla, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window,
 };
 use ui::{
     button::Button,
+    clipboard::Clipboard,
     divider::Divider,
     h_flex,
     indicator::Indicator,
     progress::Progress,
     skeleton::Skeleton,
     slider::{Slider, SliderEvent},
-    v_flex, IconName, Sizable,
+    v_flex, Colorize as _, ContextModal, IconName, Sizable,
 };
 
 pub struct ProgressStory {
     focus_handle: gpui::FocusHandle,
     value: f32,
-    slider1: View<Slider>,
+    slider1: Entity<Slider>,
     slider1_value: f32,
-    slider2: View<Slider>,
+    slider2: Entity<Slider>,
     slider2_value: f32,
+    slider_hsl: [Entity<Slider>; 4],
+    slider_hsl_value: Hsla,
+    _subscritions: Vec<Subscription>,
 }
 
 impl super::Story for ProgressStory {
@@ -27,48 +31,105 @@ impl super::Story for ProgressStory {
         "Progress"
     }
 
-    fn new_view(cx: &mut WindowContext) -> View<impl gpui::FocusableView> {
-        Self::view(cx)
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render + Focusable> {
+        Self::view(window, cx)
     }
 }
 
 impl ProgressStory {
-    pub fn view(cx: &mut WindowContext) -> View<Self> {
-        cx.new_view(Self::new)
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 
-    fn new(cx: &mut ViewContext<Self>) -> Self {
-        let slider1 = cx.new_view(|_| {
+    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+        let slider1 = cx.new(|_| {
             Slider::horizontal()
                 .min(-255.)
                 .max(255.)
                 .default_value(15.)
                 .step(15.)
         });
-        cx.subscribe(&slider1, |this, _, event: &SliderEvent, cx| match event {
-            SliderEvent::Change(value) => {
-                this.slider1_value = *value;
-                cx.notify();
-            }
-        })
-        .detach();
 
-        let slider2 = cx.new_view(|_| Slider::horizontal().min(0.).max(5.).step(1.0));
-        cx.subscribe(&slider2, |this, _, event: &SliderEvent, cx| match event {
-            SliderEvent::Change(value) => {
-                this.slider2_value = *value;
-                cx.notify();
-            }
-        })
-        .detach();
+        let slider2 = cx.new(|_| Slider::horizontal().min(0.).max(5.).step(1.0));
+        let slider_hsl = [
+            cx.new(|_| {
+                Slider::vertical()
+                    .reverse()
+                    .min(0.)
+                    .max(1.)
+                    .step(0.01)
+                    .default_value(0.)
+            }),
+            cx.new(|_| {
+                Slider::vertical()
+                    .reverse()
+                    .min(0.)
+                    .max(1.)
+                    .step(0.01)
+                    .default_value(0.5)
+            }),
+            cx.new(|_| {
+                Slider::vertical()
+                    .reverse()
+                    .min(0.)
+                    .max(1.)
+                    .step(0.01)
+                    .default_value(0.5)
+            }),
+            cx.new(|_| {
+                Slider::vertical()
+                    .reverse()
+                    .min(0.)
+                    .max(1.)
+                    .step(0.01)
+                    .default_value(1.)
+            }),
+        ];
+
+        let mut _subscritions = vec![
+            cx.subscribe(&slider1, |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.slider1_value = *value;
+                    cx.notify();
+                }
+            }),
+            cx.subscribe(&slider2, |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.slider2_value = *value;
+                    cx.notify();
+                }
+            }),
+        ];
+
+        _subscritions.extend(
+            slider_hsl
+                .iter()
+                .map(|slider| {
+                    cx.subscribe(slider, |this, _, event: &SliderEvent, cx| match event {
+                        SliderEvent::Change(_) => {
+                            this.slider_hsl_value = hsla(
+                                this.slider_hsl[0].read(cx).value(),
+                                this.slider_hsl[1].read(cx).value(),
+                                this.slider_hsl[2].read(cx).value(),
+                                this.slider_hsl[3].read(cx).value(),
+                            );
+                            cx.notify();
+                        }
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
 
         Self {
             focus_handle: cx.focus_handle(),
             value: 50.,
-            slider1_value: 15.,
-            slider2_value: 1.,
+            slider1_value: 0.,
+            slider2_value: 0.,
             slider1,
             slider2,
+            slider_hsl,
+            slider_hsl_value: gpui::red(),
+            _subscritions,
         }
     }
 
@@ -77,48 +138,42 @@ impl ProgressStory {
     }
 }
 
-impl gpui::FocusableView for ProgressStory {
-    fn focus_handle(&self, _: &gpui::AppContext) -> gpui::FocusHandle {
+impl Focusable for ProgressStory {
+    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
 
 impl Render for ProgressStory {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rgb = SharedString::from(self.slider_hsl_value.to_hex());
+
         v_flex()
             .items_center()
             .gap_y_3()
             .child(
                 h_flex()
                     .gap_x_2()
-                    .child(
-                        Button::new("button-1")
-                            .label("0%")
-                            .on_click(cx.listener(|this, _, _| {
-                                this.set_value(0.);
-                            })),
-                    )
-                    .child(
-                        Button::new("button-2")
-                            .label("25%")
-                            .on_click(cx.listener(|this, _, _| {
-                                this.set_value(25.);
-                            })),
-                    )
-                    .child(
-                        Button::new("button-3")
-                            .label("75%")
-                            .on_click(cx.listener(|this, _, _| {
-                                this.set_value(75.);
-                            })),
-                    )
-                    .child(
-                        Button::new("button-4")
-                            .label("100%")
-                            .on_click(cx.listener(|this, _, _| {
-                                this.set_value(100.);
-                            })),
-                    ),
+                    .child(Button::new("button-1").label("0%").on_click(cx.listener(
+                        |this, _, _, _| {
+                            this.set_value(0.);
+                        },
+                    )))
+                    .child(Button::new("button-2").label("25%").on_click(cx.listener(
+                        |this, _, _, _| {
+                            this.set_value(25.);
+                        },
+                    )))
+                    .child(Button::new("button-3").label("75%").on_click(cx.listener(
+                        |this, _, _, _| {
+                            this.set_value(75.);
+                        },
+                    )))
+                    .child(Button::new("button-4").label("100%").on_click(cx.listener(
+                        |this, _, _, _| {
+                            this.set_value(100.);
+                        },
+                    ))),
             )
             .child(div().w_1_2().child(Progress::new().value(self.value)))
             .child(
@@ -127,14 +182,14 @@ impl Render for ProgressStory {
                     .child(
                         Button::new("button-5")
                             .icon(IconName::Minus)
-                            .on_click(cx.listener(|this, _, _| {
+                            .on_click(cx.listener(|this, _, _, _| {
                                 this.set_value((this.value - 1.).max(0.));
                             })),
                     )
                     .child(
                         Button::new("button-6")
                             .icon(IconName::Plus)
-                            .on_click(cx.listener(|this, _, _| {
+                            .on_click(cx.listener(|this, _, _, _| {
                                 this.set_value((this.value + 1.).min(100.));
                             })),
                     ),
@@ -153,7 +208,12 @@ impl Render for ProgressStory {
                     )
                     .child(Indicator::new().with_size(px(64.))),
             )
-            .child(Divider::horizontal().mt_10().label("Slider"))
+            .child(
+                Divider::horizontal()
+                    .mt_10()
+                    .label("Slider")
+                    .color(ui::gray_300()),
+            )
             .child(self.slider1.clone())
             .child(format!("Slider 1: {}", self.slider1_value))
             .child(
@@ -162,6 +222,67 @@ impl Render for ProgressStory {
                     .w(px(200.))
                     .child(self.slider2.clone())
                     .child(format!("Slider 2: {}", self.slider2_value)),
+            )
+            .child(
+                h_flex()
+                    .gap_3()
+                    .justify_start()
+                    .child(
+                        v_flex()
+                            .w_32()
+                            .h_40()
+                            .gap_3()
+                            .items_center()
+                            .child(self.slider_hsl[0].clone())
+                            .child(format!("H: {:.0}", self.slider_hsl_value.h * 360.)),
+                    )
+                    .child(
+                        v_flex()
+                            .w_32()
+                            .h_40()
+                            .gap_3()
+                            .items_center()
+                            .child(self.slider_hsl[1].clone())
+                            .child(format!("S: {:.0}", self.slider_hsl_value.s * 100.)),
+                    )
+                    .child(
+                        v_flex()
+                            .w_32()
+                            .h_40()
+                            .gap_3()
+                            .items_center()
+                            .child(self.slider_hsl[2].clone())
+                            .child(format!("L: {:.0}", self.slider_hsl_value.l * 100.)),
+                    )
+                    .child(
+                        v_flex()
+                            .w_32()
+                            .h_40()
+                            .gap_3()
+                            .items_center()
+                            .child(self.slider_hsl[3].clone())
+                            .child(format!("A: {:.0}", self.slider_hsl_value.a * 100.)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                h_flex()
+                                    .w_32()
+                                    .p_1()
+                                    .rounded_lg()
+                                    .justify_center()
+                                    .bg(self.slider_hsl_value)
+                                    .child(rgb.clone())
+                                    .text_color(self.slider_hsl_value.invert()),
+                            )
+                            .child(Clipboard::new("copy-hsl").value(rgb).on_copied(
+                                |_, window, cx| {
+                                    window.push_notification("Color copied to clipboard.", cx)
+                                },
+                            )),
+                    ),
             )
             .child(
                 h_flex()

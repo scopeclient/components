@@ -2,20 +2,22 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::{
     scroll::{Scrollable, ScrollbarAxis},
-    theme::ActiveTheme,
+    ActiveTheme,
 };
 use gpui::{
-    div, px, Axis, Div, Edges, Element, ElementId, EntityId, FocusHandle, Pixels, Styled,
-    WindowContext,
+    div, px, App, Axis, Div, Edges, Element, ElementId, EntityId, FocusHandle, Pixels, Styled,
+    Window,
 };
 use serde::{Deserialize, Serialize};
 
 /// Returns a `Div` as horizontal flex layout.
+#[inline]
 pub fn h_flex() -> Div {
     div().h_flex()
 }
 
 /// Returns a `Div` as vertical flex layout.
+#[inline]
 pub fn v_flex() -> Div {
     div().v_flex()
 }
@@ -23,6 +25,7 @@ pub fn v_flex() -> Div {
 macro_rules! font_weight {
     ($fn:ident, $const:ident) => {
         /// [docs](https://tailwindcss.com/docs/font-weight)
+        #[inline]
         fn $fn(self) -> Self {
             self.font_weight(gpui::FontWeight::$const)
         }
@@ -32,11 +35,13 @@ macro_rules! font_weight {
 /// Extends [`gpui::Styled`] with specific styling methods.
 pub trait StyledExt: Styled + Sized {
     /// Apply self into a horizontal flex layout.
+    #[inline]
     fn h_flex(self) -> Self {
         self.flex().flex_row().items_center()
     }
 
     /// Apply self into a vertical flex layout.
+    #[inline]
     fn v_flex(self) -> Self {
         self.flex().flex_col()
     }
@@ -87,9 +92,9 @@ pub trait StyledExt: Styled + Sized {
     }
 
     /// Render a 1px blue border, when if the element is focused
-    fn debug_focused(self, focus_handle: &FocusHandle, cx: &WindowContext) -> Self {
+    fn debug_focused(self, focus_handle: &FocusHandle, window: &Window, cx: &App) -> Self {
         if cfg!(debug_assertions) {
-            if focus_handle.contains_focused(cx) {
+            if focus_handle.contains_focused(window, cx) {
                 self.debug_blue()
             } else {
                 self
@@ -100,13 +105,15 @@ pub trait StyledExt: Styled + Sized {
     }
 
     /// Render a border with a width of 1px, color ring color
-    fn outline(self, cx: &WindowContext) -> Self {
+    #[inline]
+    fn outline(self, cx: &App) -> Self {
         self.border_color(cx.theme().ring)
     }
 
     /// Wraps the element in a ScrollView.
     ///
     /// Current this is only have a vertical scrollbar.
+    #[inline]
     fn scrollable(self, view_id: EntityId, axis: ScrollbarAxis) -> Scrollable<Self>
     where
         Self: Element,
@@ -125,7 +132,8 @@ pub trait StyledExt: Styled + Sized {
     font_weight!(font_black, BLACK);
 
     /// Set as Popover style
-    fn popover_style(self, cx: &mut WindowContext) -> Self {
+    #[inline]
+    fn popover_style(self, cx: &mut App) -> Self {
         self.bg(cx.theme().popover)
             .border_1()
             .border_color(cx.theme().border)
@@ -149,6 +157,7 @@ pub enum Size {
 
 impl Size {
     /// Returns the height for table row.
+    #[inline]
     pub fn table_row_height(&self) -> Pixels {
         match self {
             Size::XSmall => px(26.),
@@ -157,7 +166,9 @@ impl Size {
             _ => px(32.),
         }
     }
+
     /// Returns the padding for a table cell.
+    #[inline]
     pub fn table_cell_padding(&self) -> Edges<Pixels> {
         match self {
             Size::XSmall => Edges {
@@ -208,6 +219,7 @@ pub trait Disableable {
 }
 
 /// A trait for setting the size of an element.
+/// Size::Medium is use by default.
 pub trait Sizable: Sized {
     /// Set the ui::Size of this element.
     ///
@@ -215,17 +227,17 @@ pub trait Sizable: Sized {
     /// Or a `Pixels` to set a custom size: `px(30.)`
     fn with_size(self, size: impl Into<Size>) -> Self;
 
-    /// Set to Size::Small
-    fn small(self) -> Self {
-        self.with_size(Size::Small)
-    }
-
     /// Set to Size::XSmall
     fn xsmall(self) -> Self {
         self.with_size(Size::XSmall)
     }
 
-    /// Set to Size::Medium
+    /// Set to Size::Small
+    fn small(self) -> Self {
+        self.with_size(Size::Small)
+    }
+
+    /// Set to Size::Large
     fn large(self) -> Self {
         self.with_size(Size::Large)
     }
@@ -250,6 +262,7 @@ pub trait StyleSized<T: Styled> {
 }
 
 impl<T: Styled> StyleSized<T> for T {
+    #[inline]
     fn input_text_size(self, size: Size) -> Self {
         match size {
             Size::XSmall => self.text_xs(),
@@ -260,10 +273,12 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn input_size(self, size: Size) -> Self {
         self.input_px(size).input_py(size).input_h(size)
     }
 
+    #[inline]
     fn input_pl(self, size: Size) -> Self {
         match size {
             Size::Large => self.pl_5(),
@@ -272,6 +287,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn input_pr(self, size: Size) -> Self {
         match size {
             Size::Large => self.pr_5(),
@@ -280,6 +296,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn input_px(self, size: Size) -> Self {
         match size {
             Size::Large => self.px_5(),
@@ -288,6 +305,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn input_py(self, size: Size) -> Self {
         match size {
             Size::Large => self.py_5(),
@@ -296,6 +314,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn input_h(self, size: Size) -> Self {
         match size {
             Size::Large => self.h_11(),
@@ -305,10 +324,12 @@ impl<T: Styled> StyleSized<T> for T {
         .input_text_size(size)
     }
 
+    #[inline]
     fn list_size(self, size: Size) -> Self {
         self.list_px(size).list_py(size).input_text_size(size)
     }
 
+    #[inline]
     fn list_px(self, size: Size) -> Self {
         match size {
             Size::Small => self.px_2(),
@@ -316,6 +337,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn list_py(self, size: Size) -> Self {
         match size {
             Size::Large => self.py_2(),
@@ -325,6 +347,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn size_with(self, size: Size) -> Self {
         match size {
             Size::Large => self.size_11(),
@@ -335,6 +358,7 @@ impl<T: Styled> StyleSized<T> for T {
         }
     }
 
+    #[inline]
     fn table_cell_size(self, size: Size) -> Self {
         let padding = size.table_cell_padding();
         match size {
@@ -355,10 +379,12 @@ pub trait AxisExt {
 }
 
 impl AxisExt for Axis {
+    #[inline]
     fn is_horizontal(self) -> bool {
         self == Axis::Horizontal
     }
 
+    #[inline]
     fn is_vertical(self) -> bool {
         self == Axis::Vertical
     }
@@ -384,6 +410,7 @@ impl Display for Placement {
 }
 
 impl Placement {
+    #[inline]
     pub fn is_horizontal(&self) -> bool {
         match self {
             Placement::Left | Placement::Right => true,
@@ -391,6 +418,7 @@ impl Placement {
         }
     }
 
+    #[inline]
     pub fn is_vertical(&self) -> bool {
         match self {
             Placement::Top | Placement::Bottom => true,
@@ -398,10 +426,31 @@ impl Placement {
         }
     }
 
+    #[inline]
     pub fn axis(&self) -> Axis {
         match self {
             Placement::Top | Placement::Bottom => Axis::Vertical,
             Placement::Left | Placement::Right => Axis::Horizontal,
         }
     }
+}
+
+/// A enum for defining the side of the element.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Side {
+    Left,
+    Right,
+}
+
+impl Side {
+    #[inline]
+    pub(crate) fn is_left(&self) -> bool {
+        matches!(self, Self::Left)
+    }
+}
+
+/// A trait for defining element that can be collapsed.
+pub trait Collapsible {
+    fn collapsed(self, collapsed: bool) -> Self;
+    fn is_collapsed(&self) -> bool;
 }
